@@ -25,14 +25,34 @@ import { syncAdvisorsFromServer } from "./data/mockAdvisors.js";
 import { getStudentGoalsCareer } from "./utils/goalsCareer.js";
 import "./App.css";
 
+const AUTH_STORAGE_KEY = "bobbyAdvisorAuth";
+
+function getStoredAuth() {
+  try {
+    const raw = localStorage.getItem(AUTH_STORAGE_KEY);
+    if (!raw) return null;
+
+    const parsed = JSON.parse(raw);
+    if (!parsed?.userId || !parsed?.role) return null;
+
+    return parsed;
+  } catch (error) {
+    console.error("Failed to restore saved login:", error);
+    return null;
+  }
+}
+
 function App() {
-  const [isLoggedIn, setIsLoggedIn] = useState(false);
-  const [userId, setUserId] = useState("");
-  const [role, setRole] = useState(null);
+  const [storedAuth] = useState(() => getStoredAuth());
+  const [isLoggedIn, setIsLoggedIn] = useState(
+    () => Boolean(storedAuth?.userId && storedAuth?.role)
+  );
+  const [userId, setUserId] = useState(() => storedAuth?.userId || "");
+  const [role, setRole] = useState(() => storedAuth?.role || null);
   const [activePage, setActivePage] = useState("dashboard");
   const [authView, setAuthView] = useState("login");
   const [prefillStudentId, setPrefillStudentId] = useState("");
-  const [advisorId, setAdvisorId] = useState(null);
+  const [advisorId, setAdvisorId] = useState(() => storedAuth?.advisorId ?? null);
 
   // True once the student has gone through the Choose Advisor screen for
   // this session (whether they picked a real Advisor or "None for now").
@@ -41,7 +61,7 @@ function App() {
   const [advisorDecided, setAdvisorDecided] = useState(false);
 
   const [prereqGroupId, setPrereqGroupId] = useState(null);
-  const [account, setAccount] = useState(null);
+  const [account, setAccount] = useState(() => storedAuth?.account ?? null);
 
   // Whether this student has any Goals/Career Interest saved yet:
   // null = still checking
@@ -56,6 +76,47 @@ function App() {
   // completes Student ID / curriculum registration.
   const [microsoftRegistration, setMicrosoftRegistration] = useState(null);
 
+  // Keep the signed-in account across browser refreshes.
+  useEffect(() => {
+    if (!isLoggedIn || !userId || !role) return;
+
+    localStorage.setItem(
+      AUTH_STORAGE_KEY,
+      JSON.stringify({
+        userId,
+        role,
+        account,
+        advisorId,
+      })
+    );
+  }, [isLoggedIn, userId, role, account, advisorId]);
+
+  // Restore student-specific state after a browser refresh.
+  useEffect(() => {
+    if (!isLoggedIn || role !== "student" || !userId) return;
+
+    if (!advisorId) {
+      const restoredAdvisorId =
+        account?.advisorId ?? getCurrentAdvisorId(userId) ?? null;
+      if (restoredAdvisorId) {
+        setAdvisorId(restoredAdvisorId);
+      }
+    }
+
+    setPrereqGroupId(getCurrentPrereqGroupId(userId));
+
+    getStudentGoalsCareer(userId)
+      .then(({ goals, careerInterests }) => {
+        setGoalsPromptNeeded(
+          goals.length === 0 && careerInterests.length === 0
+        );
+      })
+      .catch((err) => {
+        console.error("Failed to check goals/career interests:", err);
+        setGoalsPromptNeeded(false);
+      });
+  }, [isLoggedIn, role, userId, account?.advisorId]);
+
   // Load curriculum requirements.
   useEffect(() => {
     syncCurriculaFromServer();
@@ -67,23 +128,33 @@ function App() {
   }, []);
 
   const handleLogin = (id, loggedInRole, loggedInAccount) => {
+    const nextAccount = loggedInAccount ?? null;
+    const currentAdvisorId =
+      loggedInRole === "student"
+        ? nextAccount
+          ? nextAccount.advisorId ?? null
+          : getCurrentAdvisorId(id)
+        : null;
+
     setUserId(id);
     setRole(loggedInRole);
-    setAccount(loggedInAccount ?? null);
+    setAccount(nextAccount);
     setIsLoggedIn(true);
     setMicrosoftRegistration(null);
     setAdvisorDecided(false);
     setGoalsDecided(false);
     setGoalsPromptNeeded(null);
-
-    const currentAdvisorId =
-      loggedInRole === "student"
-        ? loggedInAccount
-          ? loggedInAccount.advisorId ?? null
-          : getCurrentAdvisorId(id)
-        : null;
-
     setAdvisorId(currentAdvisorId);
+
+    localStorage.setItem(
+      AUTH_STORAGE_KEY,
+      JSON.stringify({
+        userId: id,
+        role: loggedInRole,
+        account: nextAccount,
+        advisorId: currentAdvisorId,
+      })
+    );
 
     // Re-sync an existing local advisor assignment to Supabase on login.
     if (loggedInRole === "student" && currentAdvisorId) {
@@ -135,13 +206,21 @@ function App() {
     if (newAdvisorId) {
       setCurrentAdvisor(userId, newAdvisorId);
       setAdvisorId(newAdvisorId);
+      setAccount((current) =>
+        current ? { ...current, advisorId: newAdvisorId } : current
+      );
     } else {
       // "None for now"
       setAdvisorId(null);
+      setAccount((current) =>
+        current ? { ...current, advisorId: null } : current
+      );
     }
   };
 
   const handleSignOut = () => {
+    localStorage.removeItem(AUTH_STORAGE_KEY);
+
     setIsLoggedIn(false);
     setUserId("");
     setRole(null);
