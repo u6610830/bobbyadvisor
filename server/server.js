@@ -6,7 +6,7 @@ import crypto from "crypto";
 import { GoogleGenAI } from "@google/genai";
 import { createClient } from "@supabase/supabase-js";
 import supabase from "./supabase.js";
-import bcrypt from "bcrypt";
+import bcrypt from "bcryptjs";
 import { httpServerHandler } from "cloudflare:node";
 dotenv.config();
 
