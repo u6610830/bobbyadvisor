@@ -56,12 +56,16 @@ export function evaluateCurriculumProgress(
         )
       ) {
         status = "in-progress";
-      } else if (course.minGradeC) {
+      } else {
         const recordedGrade = [...grades.entries()].find(
           ([gradeCode]) => courseMatchesRule(gradeCode, course.code)
         )?.[1];
 
-        if (recordedGrade && REGRADE_GRADES.has(recordedGrade)) {
+        const needsRegrade = course.minGradeC
+          ? recordedGrade && REGRADE_GRADES.has(recordedGrade)
+          : recordedGrade === "F" || recordedGrade === "W";
+
+        if (needsRegrade) {
           status = "re-grade";
         }
       }

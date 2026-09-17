@@ -2,12 +2,11 @@ import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
 import multer from "multer";
-import crypto from "crypto";
+import fs from "fs";
 import { GoogleGenAI } from "@google/genai";
 import { createClient } from "@supabase/supabase-js";
 import supabase from "./supabase.js";
-import bcrypt from "bcryptjs";
-import { httpServerHandler } from "cloudflare:node";
+import bcrypt from "bcrypt";
 dotenv.config();
 
 const app = express();
@@ -16,7 +15,7 @@ app.use(cors());
 app.use(express.json());
 
 const upload = multer({
-  storage: multer.memoryStorage(),
+  dest: "uploads/"
 });
 
 const client = new GoogleGenAI({
@@ -32,72 +31,6 @@ const client = new GoogleGenAI({
 // which breaks the upload it's used in.
 const GEMINI_MODEL = "gemini-3.1-flash-lite";
 const CLIENT_URL = String(process.env.CLIENT_URL || "http://localhost:5173").replace(/\/$/, "");
-
-// AES-256-GCM encryption for Bobby's saved chat (see BOBBY_MESSAGES_TABLE
-// below) — both the student's own messages and Bobby's replies are
-// encrypted before they're written to the database, so the raw table
-// never holds readable chat text, only ciphertext. CHAT_ENCRYPTION_KEY
-// can be any passphrase of any length; it's hashed down to a fixed
-// 256-bit key so the .env value doesn't have to be a specific format.
-if (!process.env.CHAT_ENCRYPTION_KEY) {
-  console.warn(
-    "CHAT_ENCRYPTION_KEY is not set in .env — Bobby chat messages will be encrypted with an insecure default key. Set CHAT_ENCRYPTION_KEY to a long random value before deploying."
-  );
-}
-const CHAT_ENCRYPTION_KEY = crypto
-  .createHash("sha256")
-  .update(String(process.env.CHAT_ENCRYPTION_KEY || "insecure-default-change-me"))
-  .digest();
-
-// Safe to log/share — it's a short one-way fingerprint of the derived
-// key, not the key itself. Two servers meant to read each other's
-// encrypted chat rows must print the exact same fingerprint here; if
-// they don't, their .env values differ in some way that isn't visible
-// just by eyeballing them (e.g. one has quotes around the value, or a
-// trailing space, that the other doesn't).
-console.log(
-  "Chat encryption key fingerprint:",
-  crypto.createHash("sha256").update(CHAT_ENCRYPTION_KEY).digest("hex").slice(0, 12)
-);
-
-function encryptChatText(plainText) {
-  const iv = crypto.randomBytes(12); // 96-bit IV, standard for GCM
-  const cipher = crypto.createCipheriv("aes-256-gcm", CHAT_ENCRYPTION_KEY, iv);
-  const ciphertext = Buffer.concat([
-    cipher.update(String(plainText ?? ""), "utf8"),
-    cipher.final(),
-  ]);
-  const authTag = cipher.getAuthTag();
-  // Stored as one text column: base64(iv):base64(authTag):base64(ciphertext).
-  return [iv, authTag, ciphertext].map((buf) => buf.toString("base64")).join(":");
-}
-
-function decryptChatText(storedText) {
-  const raw = String(storedText ?? "");
-  const parts = raw.split(":");
-  // Anything not in our iv:authTag:ciphertext shape isn't decryptable —
-  // returned as-is rather than thrown away, so rows written before
-  // encryption was added (if any) still display instead of vanishing.
-  if (parts.length !== 3) return raw;
-
-  try {
-    const [ivB64, authTagB64, ciphertextB64] = parts;
-    const decipher = crypto.createDecipheriv(
-      "aes-256-gcm",
-      CHAT_ENCRYPTION_KEY,
-      Buffer.from(ivB64, "base64")
-    );
-    decipher.setAuthTag(Buffer.from(authTagB64, "base64"));
-    const plaintext = Buffer.concat([
-      decipher.update(Buffer.from(ciphertextB64, "base64")),
-      decipher.final(),
-    ]);
-    return plaintext.toString("utf8");
-  } catch (error) {
-    console.error("Failed to decrypt a Bobby chat message:", error.message);
-    return "[Unable to decrypt this message]";
-  }
-}
 
 // Only Assumption University student emails are accepted for registration:
 // "u" followed by 7 digits, then "@au.edu" — e.g. u6610066@au.edu,
@@ -651,7 +584,7 @@ app.post("/extract", upload.single("image"), async (req, res) => {
     console.log("Extracting grades for student:", studentId);
 
     // Read image
-    const imageBuffer = req.file.buffer;
+    const imageBuffer = fs.readFileSync(req.file.path);
     const base64 = imageBuffer.toString("base64");
 
     // Send image to Gemini
@@ -758,6 +691,11 @@ Unknown -->2/2024 CSX3002 OBJECT-ORIENTED CONCEPTS AND PROGRAMMING (3 Credits)
       throw new Error(error.message);
     }
 
+    // Delete uploaded image
+    if (fs.existsSync(req.file.path)) {
+      fs.unlinkSync(req.file.path);
+    }
+
     // Send saved grades back to frontend
     res.json({
       student_id: studentId,
@@ -766,6 +704,11 @@ Unknown -->2/2024 CSX3002 OBJECT-ORIENTED CONCEPTS AND PROGRAMMING (3 Credits)
 
   } catch (error) {
     console.error(error);
+
+    // Delete image if something went wrong
+    if (req.file && fs.existsSync(req.file.path)) {
+      fs.unlinkSync(req.file.path);
+    }
 
     res.status(500).json({
       error: error.message
@@ -990,7 +933,7 @@ app.post("/extract-timetable", upload.single("file"), async (req, res) => {
 
     console.log("Extracting timetable from:", req.file.originalname);
 
-    const fileBuffer = req.file.buffer;
+    const fileBuffer = fs.readFileSync(req.file.path);
     const base64 = fileBuffer.toString("base64");
 
     const response = await client.models.generateContent({
@@ -1223,10 +1166,18 @@ Return exactly this shape:
       );
     }
 
+    if (fs.existsSync(req.file.path)) {
+      fs.unlinkSync(req.file.path);
+    }
+
     res.json({ classes });
 
   } catch (error) {
     console.error(error);
+
+    if (req.file && fs.existsSync(req.file.path)) {
+      fs.unlinkSync(req.file.path);
+    }
 
     res.status(500).json({
       error: error.message
@@ -1521,13 +1472,15 @@ app.post("/extract-prerequisites", upload.single("file"), async (req, res) => {
       "application/pdf",
     ];
     if (!SUPPORTED_MIME_TYPES.includes(req.file.mimetype)) {
+      if (fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
       return res.status(400).json({
         error: `File type "${req.file.mimetype || "unknown"}" is not supported. Please upload a JPG, PNG, or PDF file only.`,
       });
     }
 
-    const fileBuffer = req.file.buffer;
+    const fileBuffer = fs.readFileSync(req.file.path);
     if (fileBuffer.length === 0) {
+      if (fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
       return res.status(400).json({ error: "The uploaded file is empty. Please try a different file." });
     }
     const base64 = fileBuffer.toString("base64");
@@ -1585,6 +1538,8 @@ Return exactly this shape:
 
     const result = JSON.parse(cleanedText);
 
+    if (fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+
     if (!result.rows || !Array.isArray(result.rows)) {
       throw new Error("Invalid prerequisite data returned by Gemini");
     }
@@ -1602,6 +1557,8 @@ Return exactly this shape:
     res.json({ rows });
   } catch (error) {
     console.error("POST /extract-prerequisites error:", error);
+    if (req.file?.path && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+
     const raw = error?.message || "";
     let friendly = raw || "Failed to read the uploaded file.";
     if (raw.includes("INVALID_ARGUMENT")) {
@@ -2140,14 +2097,7 @@ app.get("/chat/bobby/:studentId", async (req, res) => {
 
     if (error) return res.status(500).json({ error: error.message });
 
-    // Rows are stored encrypted (see encryptChatText) — decrypt each
-    // one's text here so the client only ever sees plain chat text.
-    const messages = (data || []).map((row) => ({
-      ...row,
-      text: decryptChatText(row.text),
-    }));
-
-    res.json({ messages });
+    res.json({ messages: data || [] });
   } catch (error) {
     console.error("GET /chat/bobby/:studentId error:", error);
     res.status(500).json({ error: error.message });
@@ -2381,22 +2331,18 @@ ${JSON.stringify(context)}
 
     const reply = (response.text || "").trim();
 
-    // Save both sides of the conversation before completing the request.
-    // This is important on Cloudflare Workers: if we send the response first,
-    // unfinished async database work may not reliably complete.
-    const { error: saveError } = await supabase
+    // Best-effort save — a logging hiccup here shouldn't cost the student
+    // the reply they're already waiting on, so this never blocks or fails
+    // the response.
+    supabase
       .from(BOBBY_MESSAGES_TABLE)
       .insert([
-        { student_id: studentId, role: "user", text: encryptChatText(message) },
-        { student_id: studentId, role: "bot", text: encryptChatText(reply) },
-      ]);
-
-    if (saveError) {
-      console.error("Failed to save Bobby chat message:", saveError.message);
-      return res.status(500).json({
-        error: `Bobby generated a reply, but the conversation could not be saved: ${saveError.message}`,
+        { student_id: studentId, role: "user", text: message },
+        { student_id: studentId, role: "bot", text: reply },
+      ])
+      .then(({ error: saveError }) => {
+        if (saveError) console.error("Failed to save Bobby chat message:", saveError.message);
       });
-    }
 
     res.json({ reply });
   } catch (error) {
@@ -4176,8 +4122,6 @@ app.put("/courses/:courseCode", async (req, res) => {
 
 
 
-app.listen(3001);
-
-export default httpServerHandler({
-  port: 3001
+app.listen(3001, () => {
+  console.log("Server running on port 3001");
 });

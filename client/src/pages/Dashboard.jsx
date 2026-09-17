@@ -10,9 +10,10 @@ import {
   courseMatchesRule,
 } from "../utils/graduation.js";
 import { getCurriculumForStudent, getCurriculumGroups } from "../utils/curriculum.js";
+import { normalizeCourseCode } from "../utils/courseCode.js";
 import "./Dashboard.css";
 
-const API_BASE = import.meta.env.VITE_API_BASE || (import.meta.env.PROD ? "https://api.bobbyadvisor.org" : "http://localhost:3001");
+const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:3001";
 const DEFAULT_CREDITS_REQUIRED = 132;
 
 const STATUS_CLASS = {
@@ -22,6 +23,7 @@ const STATUS_CLASS = {
   Withdraw: "status-withdraw",
   "Register This Term": "status-register",
   Incomplete: "status-incomplete",
+  "Not Taken": "status-not-taken",
 };
 
 function Dashboard({ onNavigate, studentId, curriculumYear = null }) {
@@ -312,6 +314,36 @@ const progressColor = getProgressColor(progressPct);
     );
   });
 
+  // Blocks belonging specifically to "Major Courses" or "Core Courses"
+  // (not General Education, or any of the elective-taxonomy groups — see
+  // DEFAULT_COURSE_GROUPS in utils/courseGroups.js). Matched by name, the
+  // same way StudentGraduationCheck distinguishes blocks, so it still
+  // works if Admin renames one slightly, while telling them apart from
+  // "Major Elective Courses (Group 1A/1B)" and "Other Major Elective
+  // Courses", which also contain the word "major".
+  const isTargetBlock = (block) => {
+    const text = `${block.group || ""} ${block.label || ""}`;
+    if (/elective/i.test(text)) return false;
+    return /major/i.test(text) || /\bcore\b/i.test(text);
+  };
+
+  // Every course listed in a Major/Core block, plus every course Admin
+  // flagged "Min C" anywhere in the curriculum (an elective could still
+  // require a minimum C) — deduped by code, since a course can be both.
+  // Full objects (not just codes) so a course the student hasn't taken
+  // yet still has a name to display.
+  const requiredCourseMap = new Map();
+  getCurriculumGroups(curriculum).forEach((block) => {
+    const inTargetBlock = isTargetBlock(block);
+    (block.courses || []).forEach((course) => {
+      if (!course.code) return;
+      if (!inTargetBlock && !course.minGradeC) return;
+      if (!requiredCourseMap.has(course.code)) {
+        requiredCourseMap.set(course.code, course);
+      }
+    });
+  });
+
   const getCourseStatus = (courseCode, courseGrades) => {
     // A course is complete according to that course's own minimum-grade rule.
     if (
@@ -350,13 +382,45 @@ const progressColor = getProgressColor(progressPct);
     return "Incomplete";
   };
 
-  const majorCourses = Object.values(courseMap).map(
-    (course) => ({
-      code: course.code,
-      name: course.name,
-      status: getCourseStatus(course.code, course.grades),
+  // Course status lists every Major/Core course plus every Min-C course
+  // from the curriculum — taken or not. A course the student hasn't
+  // taken yet shows "Not Taken" instead of being left off the list.
+  // Grouped by subject prefix (e.g. all "ELE" courses together, all
+  // "CSX" courses together) and sorted by course number ascending within
+  // each group.
+  const parseCourseCode = (code) => {
+    const match = String(code || "").toUpperCase().match(/^([A-Z]+)\D*(\d+)/);
+    return match
+      ? { prefix: match[1], number: Number(match[2]) }
+      : { prefix: String(code || ""), number: 0 };
+  };
+
+  // A required course's own code is always an exact single code (never a
+  // range like "CSX4280-4299" — those only appear in open elective
+  // pools), so an exact normalized match against what the student has
+  // actually taken is enough here.
+  const findTakenEntry = (requiredCode) => {
+    const target = normalizeCourseCode(requiredCode);
+    if (!target) return null;
+    return Object.values(courseMap).find(
+      (taken) => normalizeCourseCode(taken.code) === target
+    );
+  };
+
+  const majorCourses = Array.from(requiredCourseMap.values())
+    .map((course) => {
+      const taken = findTakenEntry(course.code);
+      return {
+        code: course.code,
+        name: course.name,
+        status: taken ? getCourseStatus(taken.code, taken.grades) : "Not Taken",
+        ...parseCourseCode(course.code),
+      };
     })
-  );
+    .sort((a, b) => {
+      if (a.prefix !== b.prefix) return a.prefix.localeCompare(b.prefix);
+      return a.number - b.number;
+    });
 
   /*
    * ------------------------------------------------
@@ -514,34 +578,30 @@ const progressColor = getProgressColor(progressPct);
 
         {majorCourses.length === 0 ? (
           <p>
-            Start Uploading your transcript to see your course status.
+            {curriculum
+              ? "No Major, Core, or minimum-grade-C courses are set up for your curriculum yet."
+              : "Curriculum requirements aren't available yet — check back once your curriculum year is set up."}
           </p>
         ) : (
           <ul className="major-courses-list">
 
-            {majorCourses.map(
-              ({
-                code,
-                name,
-                status,
-              }) => (
-                <li key={code}>
+            {majorCourses.map(({ code, name, status }) => (
+              <li key={code}>
 
-                  <span className="course-code">
-                    {code} {name}
-                  </span>
+                <span className="course-code">
+                  {code} {name}
+                </span>
 
-                  <span
-                    className={`course-status ${
-                      STATUS_CLASS[status] ?? ""
-                    }`}
-                  >
-                    {status}
-                  </span>
+                <span
+                  className={`course-status ${
+                    STATUS_CLASS[status] ?? ""
+                  }`}
+                >
+                  {status}
+                </span>
 
-                </li>
-              )
-            )}
+              </li>
+            ))}
 
           </ul>
         )}

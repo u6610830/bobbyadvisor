@@ -121,7 +121,7 @@ function Sidebar({
               <Icon size={20} strokeWidth={2} className="sidebar-nav-icon" />
               <span className="sidebar-nav-label">{label}</span>
 
-              {id === unreadBadgeTarget && unreadCount > 0 && !isActive && (
+              {id === unreadBadgeTarget && unreadCount > 0 && (
                 <span className="sidebar-chat-unread-badge">
                   {unreadCount > 99 ? "99+" : unreadCount}
                 </span>

@@ -27,7 +27,7 @@
 
 .upload-grade-btn:hover {
   background: var(--primary-hover);
-  color: #FFFFFF;
+  color: #ffffff;
   transform: none;
 }
 
@@ -55,13 +55,10 @@
   align-items: center;
   justify-content: center;
   gap: 14px;
-
   min-height: 150px;
-
   background: var(--card);
   border-radius: 20px;
   padding: 24px;
-
   box-shadow:
     0 1px 2px rgba(16, 24, 40, 0.04),
     0 1px 3px rgba(16, 24, 40, 0.06);
@@ -79,13 +76,10 @@
   display: flex;
   align-items: center;
   justify-content: center;
-
   min-height: 42px;
-
   font-size: 34px;
   font-weight: 500;
   line-height: 1;
-
   color: var(--text-h);
   text-align: center;
 }
@@ -94,7 +88,9 @@
   background: var(--card);
   border-radius: 20px;
   padding: 26px 28px 22px;
-  box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04), 0 1px 3px rgba(16, 24, 40, 0.06);
+  box-shadow:
+    0 1px 2px rgba(16, 24, 40, 0.04),
+    0 1px 3px rgba(16, 24, 40, 0.06);
 }
 
 .progress-header {
@@ -143,14 +139,18 @@
   padding: 20px 28px;
   font-size: 18px;
   color: var(--text-h);
-  box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04), 0 1px 3px rgba(16, 24, 40, 0.06);
+  box-shadow:
+    0 1px 2px rgba(16, 24, 40, 0.04),
+    0 1px 3px rgba(16, 24, 40, 0.06);
 }
 
 .major-courses-card {
   background: var(--card);
   border-radius: 20px;
   padding: 26px 28px 30px;
-  box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04), 0 1px 3px rgba(16, 24, 40, 0.06);
+  box-shadow:
+    0 1px 2px rgba(16, 24, 40, 0.04),
+    0 1px 3px rgba(16, 24, 40, 0.06);
 }
 
 .major-courses-card h3 {
@@ -187,11 +187,11 @@
 }
 
 .status-complete {
-  color: #16A34A;
+  color: #16a34a;
 }
 
 .status-retry {
-  color: #D97706;
+  color: #d97706;
 }
 
 .status-withdraw {
@@ -199,11 +199,16 @@
 }
 
 .status-register {
-  color: #2563EB;
+  color: #2563eb;
 }
 
 .status-incomplete {
   color: var(--text-muted);
+}
+
+.status-not-taken {
+  color: var(--text-muted);
+  opacity: 0.7;
 }
 
 @media (max-width: 640px) {
