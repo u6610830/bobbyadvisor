@@ -651,7 +651,7 @@ app.post("/extract", upload.single("image"), async (req, res) => {
     console.log("Extracting grades for student:", studentId);
 
     // Read image
-    const imageBuffer = fs.readFileSync(req.file.path);
+    const imageBuffer = req.file.buffer;
     const base64 = imageBuffer.toString("base64");
 
     // Send image to Gemini
