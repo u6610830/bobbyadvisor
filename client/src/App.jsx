@@ -49,7 +49,9 @@ function App() {
   );
   const [userId, setUserId] = useState(() => storedAuth?.userId || "");
   const [role, setRole] = useState(() => storedAuth?.role || null);
-  const [activePage, setActivePage] = useState("dashboard");
+  const [activePage, setActivePage] = useState(
+    () => storedAuth?.activePage || "dashboard"
+  );
   const [authView, setAuthView] = useState("login");
   const [prefillStudentId, setPrefillStudentId] = useState("");
   const [advisorId, setAdvisorId] = useState(() => storedAuth?.advisorId ?? null);
@@ -58,7 +60,9 @@ function App() {
   // this session (whether they picked a real Advisor or "None for now").
   // Without this, picking "None" would just bounce straight back to the
   // Choose Advisor screen, since advisorId would still be null.
-  const [advisorDecided, setAdvisorDecided] = useState(false);
+  const [advisorDecided, setAdvisorDecided] = useState(
+    () => storedAuth?.advisorDecided ?? false
+  );
 
   const [prereqGroupId, setPrereqGroupId] = useState(null);
   const [account, setAccount] = useState(() => storedAuth?.account ?? null);
@@ -70,7 +74,9 @@ function App() {
   const [goalsPromptNeeded, setGoalsPromptNeeded] = useState(null);
 
   // True once the student has gone through or skipped the Goals/Career prompt.
-  const [goalsDecided, setGoalsDecided] = useState(false);
+  const [goalsDecided, setGoalsDecided] = useState(
+    () => storedAuth?.goalsDecided ?? false
+  );
 
   // Holds a verified Microsoft sign-in while a first-time student
   // completes Student ID / curriculum registration.
@@ -87,9 +93,21 @@ function App() {
         role,
         account,
         advisorId,
+        activePage,
+        advisorDecided,
+        goalsDecided,
       })
     );
-  }, [isLoggedIn, userId, role, account, advisorId]);
+  }, [
+    isLoggedIn,
+    userId,
+    role,
+    account,
+    advisorId,
+    activePage,
+    advisorDecided,
+    goalsDecided,
+  ]);
 
   // Restore student-specific state after a browser refresh.
   useEffect(() => {
@@ -140,6 +158,7 @@ function App() {
     setRole(loggedInRole);
     setAccount(nextAccount);
     setIsLoggedIn(true);
+    setActivePage("dashboard");
     setMicrosoftRegistration(null);
     setAdvisorDecided(false);
     setGoalsDecided(false);
@@ -153,6 +172,9 @@ function App() {
         role: loggedInRole,
         account: nextAccount,
         advisorId: currentAdvisorId,
+        activePage: "dashboard",
+        advisorDecided: false,
+        goalsDecided: false,
       })
     );
 
