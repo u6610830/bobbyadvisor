@@ -308,17 +308,10 @@ function GoalsAndCareer({ studentId, curriculumYear = null, onNavigate }) {
         ]);
 
         const completed = new Set();
-        const gradesByCode = new Map();
-
         getFinalCourseGrades(gradesRes.data || []).forEach((g) => {
-          const code = normalizeCourseCode(g.course_code);
-          if (!code) return;
-
-          const grade = String(g.grade || "").trim().toUpperCase();
-          if (grade) gradesByCode.set(code, grade);
-
-          if (isCompletedGrade(grade)) {
-            completed.add(code);
+          if (isCompletedGrade(g.grade)) {
+            const code = normalizeCourseCode(g.course_code);
+            if (code) completed.add(code);
           }
         });
 
@@ -328,26 +321,12 @@ function GoalsAndCareer({ studentId, curriculumYear = null, onNavigate }) {
           if (code && !completed.has(code)) inProgress.add(code);
         });
 
-        const { blocks } = evaluateCurriculumProgress(
-          curriculum,
-          completed,
-          inProgress,
-          gradesByCode
-        );
-
-        const block = blocks.find(
-          (b) => getBlockElectiveGroupId(b) === electiveGroupId
-        );
-
+        const { blocks } = evaluateCurriculumProgress(curriculum, completed, inProgress);
+        const block = blocks.find((b) => getBlockElectiveGroupId(b) === electiveGroupId);
         if (!cancelled) {
           setProgress(
             block
-              ? {
-                  missingCount: block.courses.filter(
-                    (c) => c.status === "not-taken" || c.status === "re-grade"
-                  ).length,
-                  block,
-                }
+              ? { missingCount: block.courses.filter((c) => c.status === "not-taken").length, block }
               : null
           );
         }
