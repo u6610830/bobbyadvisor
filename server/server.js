@@ -2,12 +2,12 @@ import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
 import multer from "multer";
-import fs from "fs";
 import crypto from "crypto";
 import { GoogleGenAI } from "@google/genai";
 import { createClient } from "@supabase/supabase-js";
 import supabase from "./supabase.js";
 import bcrypt from "bcrypt";
+import { httpServerHandler } from "cloudflare:node";
 dotenv.config();
 
 const app = express();
@@ -16,7 +16,7 @@ app.use(cors());
 app.use(express.json());
 
 const upload = multer({
-  dest: "uploads/"
+  storage: multer.memoryStorage(),
 });
 
 const client = new GoogleGenAI({
@@ -758,11 +758,6 @@ Unknown -->2/2024 CSX3002 OBJECT-ORIENTED CONCEPTS AND PROGRAMMING (3 Credits)
       throw new Error(error.message);
     }
 
-    // Delete uploaded image
-    if (fs.existsSync(req.file.path)) {
-      fs.unlinkSync(req.file.path);
-    }
-
     // Send saved grades back to frontend
     res.json({
       student_id: studentId,
@@ -771,11 +766,6 @@ Unknown -->2/2024 CSX3002 OBJECT-ORIENTED CONCEPTS AND PROGRAMMING (3 Credits)
 
   } catch (error) {
     console.error(error);
-
-    // Delete image if something went wrong
-    if (req.file && fs.existsSync(req.file.path)) {
-      fs.unlinkSync(req.file.path);
-    }
 
     res.status(500).json({
       error: error.message
@@ -1000,7 +990,7 @@ app.post("/extract-timetable", upload.single("file"), async (req, res) => {
 
     console.log("Extracting timetable from:", req.file.originalname);
 
-    const fileBuffer = fs.readFileSync(req.file.path);
+    const fileBuffer = req.file.buffer;
     const base64 = fileBuffer.toString("base64");
 
     const response = await client.models.generateContent({
@@ -1233,18 +1223,10 @@ Return exactly this shape:
       );
     }
 
-    if (fs.existsSync(req.file.path)) {
-      fs.unlinkSync(req.file.path);
-    }
-
     res.json({ classes });
 
   } catch (error) {
     console.error(error);
-
-    if (req.file && fs.existsSync(req.file.path)) {
-      fs.unlinkSync(req.file.path);
-    }
 
     res.status(500).json({
       error: error.message
@@ -1539,15 +1521,13 @@ app.post("/extract-prerequisites", upload.single("file"), async (req, res) => {
       "application/pdf",
     ];
     if (!SUPPORTED_MIME_TYPES.includes(req.file.mimetype)) {
-      if (fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
       return res.status(400).json({
         error: `File type "${req.file.mimetype || "unknown"}" is not supported. Please upload a JPG, PNG, or PDF file only.`,
       });
     }
 
-    const fileBuffer = fs.readFileSync(req.file.path);
+    const fileBuffer = req.file.buffer;
     if (fileBuffer.length === 0) {
-      if (fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
       return res.status(400).json({ error: "The uploaded file is empty. Please try a different file." });
     }
     const base64 = fileBuffer.toString("base64");
@@ -1605,8 +1585,6 @@ Return exactly this shape:
 
     const result = JSON.parse(cleanedText);
 
-    if (fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
-
     if (!result.rows || !Array.isArray(result.rows)) {
       throw new Error("Invalid prerequisite data returned by Gemini");
     }
@@ -1624,8 +1602,6 @@ Return exactly this shape:
     res.json({ rows });
   } catch (error) {
     console.error("POST /extract-prerequisites error:", error);
-    if (req.file?.path && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
-
     const raw = error?.message || "";
     let friendly = raw || "Failed to read the uploaded file.";
     if (raw.includes("INVALID_ARGUMENT")) {
@@ -4196,6 +4172,8 @@ app.put("/courses/:courseCode", async (req, res) => {
 
 
 
-app.listen(3001, () => {
-  console.log("Server running on port 3001");
+app.listen(3001);
+
+export default httpServerHandler({
+  port: 3001
 });
