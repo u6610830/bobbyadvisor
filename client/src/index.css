@@ -1,0 +1,389 @@
+:root {
+  --text: #6B7280;
+  --text-h: #1F2937;
+  --text-muted: #9CA3AF;
+
+  --bg: #F7F8FA;
+  --card: #FFFFFF;
+
+  --border: #E5E7EB;
+  
+  --primary: #F7C948;
+  --primary-hover: #C98A1D;
+
+  --accent-bg: #FFF3C4;
+  --accent-border: rgba(247, 201, 72, 0.5);
+
+  --code-bg: #FFF3C4;
+  --danger: #EF4444;
+
+ 
+  --sans: system-ui, 'Segoe UI', Roboto, sans-serif;
+  --heading: system-ui, 'Segoe UI', Roboto, sans-serif;
+  --mono: ui-monospace, Consolas, monospace;
+
+
+  font: 18px/145% var(--sans);
+  letter-spacing: 0.18px;
+
+  color: var(--text);
+  background: var(--bg);
+
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+
+
+  @media (max-width: 1024px) {
+    font-size: 16px;
+  }
+}
+
+
+/* Global */
+body {
+  margin: 0;
+  background: var(--bg);
+}
+
+
+/* Main container */
+#root {
+  width: 100%;
+
+  min-height: 100svh;
+
+  background: var(--bg);
+
+  display: flex;
+  flex-direction: column;
+
+  box-sizing: border-box;
+}
+
+
+/* Headings */
+h1,
+h2 {
+  font-family: var(--heading);
+  font-weight: 600;
+  color: var(--text-h);
+}
+
+
+h1 {
+  font-size: 42px;
+  letter-spacing: -1px;
+  margin: 32px 0;
+  line-height: 1.2;
+
+  @media (max-width: 1024px) {
+    font-size: 32px;
+    margin: 20px 0;
+  }
+}
+
+
+h2 {
+  font-size: 24px;
+  line-height: 118%;
+
+  letter-spacing: -0.24px;
+
+  margin: 0 0 8px;
+
+
+  @media (max-width: 1024px) {
+    font-size: 20px;
+  }
+}
+
+
+p {
+  margin: 0;
+}
+
+
+/* Text */
+code,
+.counter {
+  font-family: var(--mono);
+
+  display: inline-flex;
+
+  border-radius: 8px;
+
+  color: var(--text-h);
+}
+
+
+code {
+  font-size: 15px;
+
+  line-height: 135%;
+
+  padding: 4px 8px;
+
+  background: var(--code-bg);
+}
+
+
+
+/* Card component */
+.card {
+
+  background: var(--card);
+
+  border: 1px solid var(--border);
+
+  border-radius: 16px;
+
+  padding: 24px;
+
+  box-shadow: var(--shadow);
+
+}
+
+
+
+/* Buttons */
+button {
+
+  background: var(--primary);
+
+  color: #1F2937;
+
+  border: none;
+
+  border-radius: 12px;
+
+  padding: 12px 24px;
+
+
+  font-size: 16px;
+
+  font-weight: 600;
+
+
+  cursor: pointer;
+
+
+  transition:
+    background 0.2s ease,
+    transform 0.2s ease;
+
+}
+
+
+button:hover {
+
+  background: var(--primary-hover);
+
+  transform: translateY(-1px);
+
+}
+
+
+button:active {
+
+  transform: translateY(0);
+
+}
+
+
+
+/* Input fields */
+
+input,
+select,
+textarea {
+
+
+  background: var(--card);
+
+  color: var(--text-h);
+
+
+  border: 1px solid var(--border);
+
+  border-radius: 12px;
+
+
+  padding: 12px 14px;
+
+
+  font-size: 16px;
+
+
+  outline: none;
+
+
+  transition: border 0.2s ease;
+
+}
+
+
+
+input:focus,
+select:focus,
+textarea:focus {
+
+  border-color: var(--primary);
+
+}
+
+
+
+/* Upload area for Grade Reader */
+
+.upload-area {
+
+
+  background: var(--card);
+
+
+  border: 2px dashed var(--primary);
+
+
+  border-radius: 16px;
+
+
+  padding: 40px;
+
+
+  box-shadow: var(--shadow);
+
+
+  transition: 0.2s ease;
+
+}
+
+
+
+.upload-area:hover {
+
+  background: #FFFDF5;
+
+}
+
+
+
+/* Result table */
+
+table {
+
+  width: 100%;
+
+  border-collapse: collapse;
+
+  background: var(--card);
+
+  border-radius: 16px;
+
+  overflow: visible;
+
+}
+
+
+
+th {
+
+  background: var(--accent-bg);
+
+  color: var(--text-h);
+
+  font-weight: 600;
+
+  padding: 14px;
+
+}
+
+
+
+td {
+
+  padding: 14px;
+
+  border-bottom: 1px solid var(--border);
+
+  color: var(--text);
+
+}
+
+
+
+
+
+
+
+/* Grade badge */
+
+.grade {
+
+
+  display: inline-flex;
+
+
+  background: var(--primary);
+
+
+  color: #1F2937;
+
+
+  padding: 5px 12px;
+
+
+  border-radius: 999px;
+
+
+  font-weight: 700;
+
+
+}
+
+
+
+/* Small labels */
+
+.badge {
+
+
+  background: var(--accent-bg);
+
+
+  color: var(--text-h);
+
+
+  border-radius: 8px;
+
+
+  padding: 5px 10px;
+
+
+  font-size: 14px;
+
+
+  font-weight: 600;
+
+}
+
+
+
+/* Smooth scrollbar */
+
+::-webkit-scrollbar {
+
+  width: 8px;
+
+}
+
+
+::-webkit-scrollbar-thumb {
+
+  background: #D1D5DB;
+
+  border-radius: 20px;
+
+}

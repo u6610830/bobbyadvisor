@@ -1,0 +1,190 @@
+/* Theme overrides — each role gets its own accent color by overriding
+   these CSS variables on the shell wrapper. Everything below reads from
+   these, so adding a new role theme is just adding a new block here. */
+.theme-instructor {
+  --role-primary: #14B8A6;
+  --role-primary-hover: #0F766E;
+  --role-accent-bg: #CCFBF1;
+  --role-accent-border: rgba(20, 184, 166, 0.4);
+}
+
+.theme-admin {
+  --role-primary: #8B5CF6;
+  --role-primary-hover: #6D28D9;
+  --role-accent-bg: #EDE9FE;
+  --role-accent-border: rgba(139, 92, 246, 0.4);
+}
+
+.role-shell {
+  display: flex;
+  min-height: 100svh;
+  width: 100%;
+  background: var(--bg);
+}
+
+.role-sidebar {
+  display: flex;
+  flex-direction: column;
+  width: 240px;
+  min-width: 240px;
+  height: 100svh;
+  position: sticky;
+  top: 0;
+  background: var(--card);
+  border-right: 1px solid var(--border);
+  padding: 28px 20px;
+  box-sizing: border-box;
+}
+
+.role-brand h1 {
+  margin: 0 0 32px;
+  font-size: 26px;
+  line-height: 1.15;
+  font-weight: 800;
+  letter-spacing: -0.5px;
+  color: var(--text-h);
+}
+
+.role-accent {
+  color: var(--role-primary);
+}
+
+.role-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.role-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  color: var(--text-muted);
+  border: none;
+  border-radius: 14px;
+  padding: 12px 14px;
+  font-size: 15px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.theme-admin .role-nav-item:hover {
+  background: var(--role-primary);
+  color: #FFFFFF;
+}
+
+.role-nav-item.active {
+  background: var(--role-accent-bg);
+  color: var(--role-primary-hover);
+  font-weight: 600;
+}
+
+.role-signout {
+  margin-top: auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: transparent;
+  border: none;
+  color: var(--danger);
+  font-size: 15px;
+  font-weight: 600;
+  padding: 12px 14px;
+  cursor: pointer;
+  border-radius: 14px;
+  transition: background 0.15s ease;
+}
+
+.role-signout:hover {
+  background: #FEF2F2;
+}
+
+.role-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.role-topbar {
+  display: flex;
+  justify-content: flex-end;
+  padding: 24px 40px 0;
+}
+
+.role-identity {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.role-id {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-h);
+  background: var(--role-accent-bg);
+  padding: 10px 18px;
+  border-radius: 999px;
+}
+
+.role-name {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+.role-content {
+  padding: 24px 40px 48px;
+  flex: 1;
+}
+
+@media (max-width: 900px) {
+  .role-shell {
+    flex-direction: column;
+  }
+
+  .role-sidebar {
+    position: relative;
+    width: 100%;
+    min-width: 0;
+    height: auto;
+    flex-direction: row;
+    align-items: center;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .role-brand h1 {
+    margin: 0 12px 0 0;
+    font-size: 18px;
+  }
+
+  .role-brand h1 br {
+    display: none;
+  }
+
+  .role-nav-item span {
+    display: none;
+  }
+
+  .role-signout {
+    margin-top: 0;
+    margin-left: auto;
+  }
+
+  .role-signout span {
+    display: none;
+  }
+
+  .role-topbar {
+    padding: 16px 20px 0;
+  }
+
+  .role-content {
+    padding: 20px;
+  }
+}

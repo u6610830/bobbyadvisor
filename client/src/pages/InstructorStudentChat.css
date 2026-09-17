@@ -1,0 +1,13 @@
+.instructor-chat-page {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  height: calc(100svh - 140px);
+}
+
+.instructor-chat-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}

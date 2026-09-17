@@ -1,0 +1,370 @@
+.gc-page {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.gc-header {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.gc-title {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 28px;
+  font-weight: 600;
+  color: var(--text-h);
+}
+
+.gc-program-name {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
+.gc-error {
+  color: var(--danger);
+  font-weight: 600;
+}
+
+.gc-empty {
+  color: var(--text-muted);
+}
+
+.gc-summary-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 14px;
+}
+
+.gc-summary-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.gc-summary-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.gc-summary-value {
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--text-h);
+}
+
+.gc-summary-status.gc-ready .gc-summary-value {
+  color: #16a34a;
+}
+
+.gc-blocks {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.gc-block {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  padding: 20px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.gc-block-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.gc-block-head strong {
+  font-size: 16px;
+  color: var(--text-h);
+  display: block;
+}
+
+.gc-block-group-tag {
+  display: inline-block;
+  margin-top: 2px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.gc-block-status {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.gc-block-head-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.gc-elective-group-edit,
+
+.gc-elective-group-save {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 8px;
+  padding: 6px 12px;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.gc-elective-group-edit {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-h);
+}
+
+.gc-elective-group-edit:hover {
+  background: var(--accent-bg, rgba(0, 0, 0, 0.06));
+}
+
+.gc-elective-group-save {
+  background: var(--primary);
+  color: var(--text-h);
+  border: none;
+}
+
+.gc-elective-group-save:hover:not(:disabled) {
+  background: var(--primary-hover);
+  color: #fff;
+}
+
+.gc-elective-group-save:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.gc-block-status.gc-satisfied {
+  color: #16a34a;
+}
+
+.gc-open-block {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.gc-course-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13.5px;
+}
+
+.gc-course-table th {
+  text-align: left;
+  padding: 8px 10px;
+  color: var(--text-muted);
+  font-weight: 600;
+  border-bottom: 1px solid var(--border);
+}
+
+.gc-course-table th:nth-child(3),
+.gc-course-table td:nth-child(3) {
+  width: 90px;
+}
+
+.gc-course-table th:nth-child(4),
+.gc-course-table td:nth-child(4) {
+  width: 90px;
+}
+
+.gc-course-table th:nth-child(5),
+.gc-course-table td:nth-child(5) {
+  width: 170px;
+}
+
+.gc-course-table td {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+
+.gc-course-table tr:last-child td {
+  border-bottom: none;
+}
+
+.gc-status-cell {
+  vertical-align: middle;
+}
+
+.gc-status-content {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 6px;
+  min-height: 20px;
+  font-weight: 700;
+  white-space: nowrap;
+  text-decoration: none;
+}
+
+.gc-status-completed,
+.gc-status-inprogress,
+.gc-status-nottaken,
+.gc-status-regrade {
+  font-weight: 700;
+}
+
+.gc-status-completed {
+  color: #16a34a;
+}
+
+.gc-status-inprogress {
+  color: #ca8a04;
+}
+
+.gc-status-nottaken {
+  color: var(--text-muted);
+}
+
+.gc-status-regrade {
+  color: #dc2626;
+}
+
+.gc-elective-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.gc-elective-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.gc-elective-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  color: var(--danger);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 6px;
+}
+
+.gc-elective-remove:hover {
+  background: rgba(220, 38, 38, 0.1);
+}
+
+.gc-status-select {
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 13px;
+  background: var(--card);
+  color: var(--text-h);
+  text-decoration: none;
+}
+
+.gc-elective-add-btn {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: none;
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+  padding: 8px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-h);
+  cursor: pointer;
+}
+
+.gc-elective-add-btn:hover {
+  border-color: var(--text-muted);
+}
+
+.gc-elective-form {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 10px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px;
+}
+
+.gc-elective-form input,
+
+.gc-elective-form select {
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 13.5px;
+  background: var(--card);
+  color: var(--text-h);
+}
+
+.gc-elective-form-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.gc-elective-save-btn {
+  background: var(--primary);
+  color: var(--text-h);
+  border: none;
+  border-radius: 8px;
+  padding: 8px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.gc-elective-save-btn:hover:not(:disabled) {
+  background: var(--primary-hover);
+  color: #fff;
+}
+
+.gc-elective-save-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.gc-elective-cancel-btn {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.gc-elective-error {
+  grid-column: 1 / -1;
+  margin: 0;
+  font-size: 12.5px;
+}

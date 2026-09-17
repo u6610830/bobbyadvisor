@@ -1,0 +1,51 @@
+.admin-summary-page {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.admin-summary-title-pill {
+  display: inline-block;
+  align-self: flex-start;
+  background: var(--role-accent-bg);
+  color: var(--text-h);
+  font-size: 22px;
+  font-weight: 500;
+  padding: 14px 28px;
+  border-radius: 16px;
+}
+
+.admin-summary-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 24px 30px 28px;
+}
+
+.admin-summary-card h3 {
+  margin: 0 0 10px;
+  font-size: 19px;
+  font-weight: 700;
+  color: var(--text-h);
+}
+
+.admin-summary-card p {
+  margin: 0 0 8px;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-h);
+}
+
+.admin-summary-card ul {
+  margin: 0;
+  padding-left: 40px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.admin-summary-card li {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-h);
+}

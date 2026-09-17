@@ -1,0 +1,140 @@
+.hdc-page {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.hdc-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.hdc-refresh {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--text-h);
+  border-radius: 10px;
+  padding: 8px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.hdc-refresh:hover {
+  background: var(--accent-bg);
+}
+
+.hdc-help {
+  margin: 0;
+  font-size: 14px;
+  color: var(--text-muted, #667085);
+  max-width: 720px;
+}
+
+.hdc-summary {
+  display: flex;
+  gap: 24px;
+  font-size: 14px;
+  color: var(--text-h);
+}
+
+.hdc-error {
+  color: var(--danger, #DC2626);
+}
+
+.hdc-empty {
+  color: var(--text-muted, #667085);
+}
+
+.hdc-list {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  overflow: hidden;
+}
+
+.hdc-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--border);
+}
+
+.hdc-row:last-child {
+  border-bottom: none;
+}
+
+.hdc-row:hover {
+  background: var(--bg);
+}
+
+.hdc-rank {
+  flex-shrink: 0;
+  width: 22px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-muted, #667085);
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.hdc-row-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+}
+
+.hdc-row-code {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-h);
+}
+
+.hdc-row-name {
+  font-size: 13.5px;
+  color: var(--text-muted, #667085);
+}
+
+.hdc-count {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: var(--accent-bg);
+  color: var(--primary-hover);
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.hdc-count svg {
+  flex-shrink: 0;
+}
+
+@media (max-width: 640px) {
+  .hdc-row {
+    flex-wrap: wrap;
+  }
+
+  .hdc-row-info {
+    flex-basis: 100%;
+    order: 1;
+    padding-left: 36px;
+  }
+
+  .hdc-count {
+    order: 2;
+    margin-left: 36px;
+  }
+}

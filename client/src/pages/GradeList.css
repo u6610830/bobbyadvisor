@@ -1,0 +1,255 @@
+.grade-list-page {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.grade-list-back {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 4px;
+}
+
+.grade-list-back:hover {
+  color: var(--text-h);
+}
+
+.grade-term-card {
+  background: var(--card);
+  border-radius: 20px;
+  padding: 22px 30px 26px;
+  box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04), 0 1px 3px rgba(16, 24, 40, 0.06);
+}
+
+.grade-term-wrap {
+  position: relative;
+}
+
+/* One pair of controls belongs to the latest-term card, outside its frame. */
+.grade-term-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin: 0 4px 8px;
+}
+
+.grade-term-edit,
+.grade-term-save {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 36px;
+  padding: 0 14px;
+  border-radius: 9px;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.grade-term-edit {
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--text-h);
+}
+
+.grade-term-save {
+  border: 0;
+  background: #16a34a;
+  color: #fff;
+}
+
+.grade-term-card h3 {
+  margin: 0 0 14px;
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text-h);
+}
+
+.grade-term-card ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.grade-course-box {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  background: var(--bg, #F9FAFB);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 14px 46px 14px 18px;
+}
+
+.grade-course {
+  font-size: 16px;
+  color: var(--text-h);
+}
+
+.grade-value {
+  flex-shrink: 0;
+  background: var(--accent-bg);
+  color: var(--text-h);
+  font-weight: 700;
+  font-size: 15px;
+  padding: 4px 14px;
+  border-radius: 999px;
+  border: none;
+}
+
+button.grade-value {
+  cursor: default;
+}
+
+button.grade-value.is-editable {
+  cursor: pointer;
+  outline: 2px dashed #d59b14;
+  outline-offset: 2px;
+}
+
+.grade-inline-select {
+  cursor: pointer;
+  appearance: auto;
+}
+.term-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+
+.term-header h3 {
+  margin: 0;
+}
+
+.term-credits {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-muted, #667085);
+}
+
+
+.term-average-value {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 48px;
+  padding: 5px 12px;
+  border-radius: 999px;
+  background: #FEF3C7;
+  color: var(--text-h);
+  font-weight: 700;
+}
+.grade-edit-btn {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.grade-edit-btn:hover {
+  background: var(--accent-bg);
+  color: var(--text-h);
+}
+
+.grade-edit-row {
+  flex-direction: column;
+  align-items: stretch !important;
+  gap: 8px !important;
+  background: var(--accent-bg);
+  border-radius: 12px;
+  padding: 12px;
+}
+
+.grade-edit-fields {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.grade-edit-fields input,
+.grade-edit-fields select {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 14px;
+  color: var(--text-h);
+  background: var(--card);
+}
+
+.grade-edit-name {
+  flex: 1;
+  min-width: 160px;
+}
+
+.grade-edit-select {
+  width: 90px;
+}
+
+.grade-edit-credits {
+  width: 90px;
+}
+
+.grade-edit-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.grade-edit-save,
+.grade-edit-cancel {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 6px 14px;
+  border-radius: 8px;
+  border: none;
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.grade-edit-save {
+  background: #16a34a;
+  color: #fff;
+}
+
+.grade-edit-save:disabled,
+.grade-edit-cancel:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.grade-edit-cancel {
+  background: var(--border);
+  color: var(--text-h);
+}
+
+.grade-edit-error {
+  margin: 0;
+  color: #b91c1c;
+  font-size: 13px;
+}

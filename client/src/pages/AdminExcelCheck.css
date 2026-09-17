@@ -1,0 +1,115 @@
+.excel-check-page {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.excel-check-upload p {
+  margin: 0 0 16px;
+  font-size: 15px;
+  color: var(--text);
+}
+
+.excel-check-filename {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 14px 0 0;
+  font-size: 14px;
+  color: var(--text-h);
+}
+
+.excel-check-loading {
+  margin: 10px 0 0;
+  font-size: 14px;
+  color: var(--text-muted);
+}
+
+.excel-check-error {
+  margin: 10px 0 0;
+  font-size: 14px;
+  color: var(--danger);
+  font-weight: 600;
+}
+
+.excel-check-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.excel-check-badge-graduated {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: #F0FDF4;
+  color: #16A34A;
+}
+
+.excel-check-badge-not-graduated {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: #FEF2F2;
+  color: var(--danger);
+}
+
+.excel-check-badge-unresolved {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: #FFF3C4;
+  color: #92610C;
+}
+
+.excel-check-table {
+  font-size: 14px;
+}
+
+.excel-status-pill {
+  display: inline-flex;
+  padding: 4px 12px;
+  border-radius: 999px;
+  font-weight: 700;
+  font-size: 12px;
+}
+
+.excel-status-pill.graduated {
+  background: #F0FDF4;
+  color: #16A34A;
+}
+
+.excel-status-pill.not-graduated {
+  background: #FEF2F2;
+  color: var(--danger);
+}
+
+.excel-status-pill.unresolved {
+  background: #FFF3C4;
+  color: #92610C;
+}
+
+.excel-check-reasons-list {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.excel-check-reasons-list li {
+  font-size: 13px;
+  color: var(--text);
+}
+
+.excel-check-upload {
+  border: 2px dashed #c4b5fd;
+  background: var(--card);
+}
+
+.excel-check-upload:hover {
+  border-color: #c4b5fd;
+  background: var(--card);
+  transform: none;
+  box-shadow: none;
+}

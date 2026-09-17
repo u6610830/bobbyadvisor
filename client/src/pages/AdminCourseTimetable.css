@@ -1,0 +1,589 @@
+.timetable-page {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.timetable-title-pill {
+  display: inline-block;
+  align-self: flex-start;
+  background: var(--role-accent-bg);
+  color: var(--text-h);
+  font-size: 22px;
+  font-weight: 500;
+  padding: 14px 28px;
+  border-radius: 16px;
+}
+
+.timetable-upload-card,
+.timetable-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 24px 30px 28px;
+}
+
+.timetable-upload-card h3,
+.timetable-card h3 {
+  margin: 0 0 8px;
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-h);
+}
+
+.timetable-upload-card p {
+  margin: 0 0 16px;
+  color: var(--text-muted);
+  font-size: 14px;
+  line-height: 1.5;
+  max-width: 640px;
+}
+
+.timetable-upload-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.timetable-upload-row input[type="file"] {
+  font-size: 14px;
+  color: var(--text);
+}
+
+.timetable-upload-row button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--role-primary);
+  color: #FFFFFF;
+  border: none;
+  border-radius: 10px;
+  padding: 10px 20px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.timetable-upload-row button:hover {
+  background: var(--role-primary-hover);
+}
+
+.timetable-selected-file,
+.timetable-current-file,
+.timetable-message {
+  margin: 12px 0 0;
+  font-size: 14px;
+  color: var(--text-h);
+}
+
+.timetable-template-preview {
+  margin-top: 16px;
+}
+
+.timetable-template-preview img {
+  display: block;
+  max-width: 100%;
+  max-height: 420px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  object-fit: contain;
+  background: var(--bg);
+}
+
+.timetable-template-file {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--text-h);
+  font-size: 14px;
+  background: var(--bg);
+}
+
+/* ---- Needs review (incomplete upload rows) ---- */
+
+.timetable-review-card {
+  background: var(--card);
+  border: 1px solid #F2C94C;
+  border-radius: 20px;
+  padding: 20px 30px 24px;
+}
+
+.timetable-review-card h3 {
+  margin: 0 0 8px;
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-h);
+}
+
+.timetable-review-card p {
+  margin: 0 0 16px;
+  color: var(--text-muted);
+  font-size: 14px;
+  line-height: 1.5;
+  max-width: 640px;
+}
+
+.timetable-review-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.timetable-review-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 16px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: #FFFBEB;
+}
+
+.timetable-review-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 14px;
+  color: var(--text-h);
+}
+
+.timetable-review-missing {
+  font-size: 12px;
+  font-weight: 600;
+  color: #B45309;
+}
+
+.timetable-review-actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.timetable-review-actions button {
+  border: none;
+  border-radius: 8px;
+  padding: 8px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  background: var(--role-primary);
+  color: #FFFFFF;
+}
+
+.timetable-review-actions button.timetable-review-discard {
+  background: transparent;
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+}
+
+@media (max-width: 640px) {
+  .timetable-review-list li {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
+
+/* ---- Card head / note ---- */
+
+.timetable-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.timetable-add-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--role-primary);
+  color: #FFFFFF;
+  border: none;
+  border-radius: 10px;
+  padding: 8px 16px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.timetable-add-btn:hover {
+  background: var(--role-primary-hover);
+}
+
+.timetable-note-input {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid transparent;
+  background: transparent;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-muted);
+  padding: 4px 0 16px;
+  margin: 0;
+}
+
+.timetable-note-input:hover,
+.timetable-note-input:focus {
+  outline: none;
+  border-bottom: 1px dashed var(--border);
+}
+
+.timetable-hint {
+  margin: 14px 0 0;
+  font-size: 12.5px;
+  color: var(--text-muted);
+}
+
+/* ---- Grid ---- */
+
+.tt-grid-scroll {
+  overflow-x: auto;
+}
+
+.tt-grid {
+  min-width: 720px;
+}
+
+.tt-header,
+.tt-row {
+  display: grid;
+  grid-template-columns: 76px 1fr;
+}
+
+.tt-label-col {
+  display: flex;
+  align-items: center;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-h);
+  letter-spacing: 0.4px;
+}
+
+.tt-header {
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.tt-time-track {
+  position: relative;
+  display: flex;
+  justify-content: space-between;
+}
+
+.tt-time-label {
+  font-size: 13px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.tt-row {
+  border-top: 1px solid var(--border);
+  min-height: 84px;
+}
+
+.tt-row:last-child {
+  border-bottom: 1px solid var(--border);
+}
+
+.tt-day-track {
+  position: relative;
+  background-image: repeating-linear-gradient(
+    to right,
+    var(--border) 0,
+    var(--border) 1px,
+    transparent 1px,
+    transparent calc(100% / 8)
+  );
+}
+
+.tt-block {
+  position: absolute;
+  margin: 0 4px;
+  border: none;
+  border-radius: 12px;
+  color: #FFFFFF;
+  padding: 8px 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  cursor: pointer;
+  text-align: center;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+  transition: filter 0.15s ease, transform 0.15s ease;
+  overflow: hidden;
+}
+
+.tt-block:hover {
+  filter: brightness(0.95);
+  transform: translateY(-1px);
+}
+
+.tt-block-code {
+  font-size: 14px;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+.tt-block-name {
+  font-size: 11px;
+  font-weight: 500;
+  opacity: 0.95;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+.timetable-db-warning {
+  margin: 0;
+  padding: 10px 16px;
+  border-radius: 12px;
+  border: 1px solid #F2C94C;
+  background: #FFFBEB;
+  color: #92400E;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.timetable-db-warning code {
+  background: rgba(146, 64, 14, 0.1);
+  padding: 1px 5px;
+  border-radius: 5px;
+  font-size: 12px;
+}
+
+.tt-row-add {
+  position: absolute;
+  top: 10px;
+  right: 8px;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 1px dashed var(--border);
+  background: var(--card);
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  opacity: 0;
+  z-index: 2;
+  transition: opacity 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.tt-day-track:hover .tt-row-add {
+  opacity: 1;
+}
+
+.tt-row-add:hover {
+  color: var(--role-primary-hover);
+  border-color: var(--role-primary);
+}
+
+/* ---- Edit/add modal ---- */
+
+.tt-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  z-index: 100;
+}
+
+.tt-modal {
+  background: var(--card);
+  border-radius: 18px;
+  padding: 24px;
+  width: 100%;
+  max-width: 400px;
+  box-shadow: 0 20px 45px rgba(15, 23, 42, 0.25);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.tt-modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.tt-modal-head h4 {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--text-h);
+}
+
+.tt-modal-close {
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  display: flex;
+  padding: 2px;
+}
+
+.tt-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-h);
+}
+
+.tt-field input,
+.tt-field select {
+  font: inherit;
+  font-weight: 400;
+  padding: 9px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text-h);
+  box-sizing: border-box;
+}
+
+.tt-field input:focus,
+.tt-field select:focus {
+  outline: none;
+  border-color: var(--role-primary);
+}
+
+.tt-field-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.tt-field-error {
+  margin: -6px 0 0;
+  font-size: 12.5px;
+  color: var(--danger);
+}
+
+/* ---- Exact 24-hour time input ---- */
+
+.tt-time-input {
+  font: inherit;
+  font-weight: 400;
+  width: 100%;
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text-h);
+  box-sizing: border-box;
+  cursor: pointer;
+}
+
+.tt-time-input:focus {
+  outline: none;
+  border-color: var(--role-primary);
+}
+
+.tt-color-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.tt-color-swatch {
+  width: 30px;
+  height: 30px;
+  border: 3px solid transparent;
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+.tt-color-swatch.is-selected {
+  border-color: var(--text-h);
+  box-shadow: 0 0 0 2px var(--card);
+}
+
+.tt-color-help {
+  margin-top: 8px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.tt-modal-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+.tt-modal-actions-right {
+  display: flex;
+  gap: 10px;
+  margin-left: auto;
+}
+
+.tt-btn-primary,
+.tt-btn-ghost,
+.tt-btn-danger {
+  border-radius: 10px;
+  padding: 9px 16px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  border: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.tt-btn-primary {
+  background: var(--role-primary);
+  color: #FFFFFF;
+}
+
+.tt-btn-primary:hover {
+  background: var(--role-primary-hover);
+}
+
+.tt-btn-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.tt-btn-ghost {
+  background: transparent;
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+}
+
+.tt-btn-ghost:hover {
+  color: var(--text-h);
+}
+
+.tt-btn-danger {
+  background: transparent;
+  color: var(--danger);
+}
+
+.tt-btn-danger:hover {
+  text-decoration: underline;
+}
