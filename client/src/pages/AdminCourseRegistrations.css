@@ -1,0 +1,243 @@
+.reg-admin-page {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.reg-admin-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.reg-admin-refresh {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  background: var(--card);
+  color: var(--text-h);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.reg-admin-refresh:hover {
+  background: var(--role-accent-bg, #EDE9FE);
+  color: var(--role-primary-hover, #6D28D9);
+  transform: none;
+}
+
+.reg-admin-help {
+  max-width: 720px;
+  margin: 0;
+  color: var(--text-muted, #667085);
+  font-size: 14px;
+}
+
+.reg-admin-error {
+  color: var(--danger, #DC2626);
+}
+
+.reg-admin-empty {
+  color: var(--text-muted, #667085);
+}
+
+.reg-admin-grid {
+  display: grid;
+  grid-template-columns:
+    repeat(auto-fill, minmax(240px, 1fr));
+  align-items: start;
+  gap: 16px;
+}
+
+.reg-admin-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 18px 20px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  transition: box-shadow 0.15s ease;
+}
+
+.reg-admin-card:hover {
+  box-shadow: 0 4px 16px rgba(16, 24, 40, 0.08);
+}
+
+.reg-admin-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.reg-admin-summary {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 18px;
+}
+
+.reg-admin-summary > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.reg-admin-card-head h4 {
+  margin: 0;
+  color: var(--text-h);
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.reg-admin-count {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--role-primary-hover, #6D28D9);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.reg-admin-sections {
+  display: flex;
+  flex-direction: column;
+}
+
+.reg-admin-section {
+  position: relative;
+  border-bottom: 1px solid var(--border);
+}
+
+.reg-admin-section:last-child {
+  border-bottom: none;
+}
+
+.reg-admin-section-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px;
+  margin: 0 -8px;
+  background: none;
+  border: none;
+  border-radius: 8px;
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.reg-admin-section-row:hover {
+  background: var(--bg);
+}
+
+.reg-admin-section-label {
+  flex: 1;
+  min-width: 0;
+  color: var(--text-h);
+  font-size: 13.5px;
+  font-weight: 700;
+}
+
+.reg-admin-section-count {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  color: var(--text-muted, #667085);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.reg-admin-section-detail {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  flex-shrink: 0;
+  color: var(--text-muted, #667085);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.reg-admin-chevron {
+  transition: transform 0.15s ease;
+}
+
+.reg-admin-chevron.open {
+  transform: rotate(180deg);
+}
+
+.reg-admin-student-list {
+  /* Floats over whatever is below instead of pushing it down — the
+     section it belongs to keeps its collapsed height either way. */
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  margin: 2px 0 0;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 8px 20px rgba(16, 24, 40, 0.12);
+  /* Rounded corners clip the header + scrolling list inside cleanly. */
+  overflow: hidden;
+}
+
+.reg-admin-student-list-head {
+  flex-shrink: 0;
+  padding: 8px 12px;
+  background: var(--accent-bg);
+  border-bottom: 1px solid var(--border);
+  color: var(--primary-hover);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.reg-admin-student-list-items {
+  margin: 0;
+  padding: 4px 12px;
+  list-style: none;
+  /* Caps at roughly 4 rows — past that the list stops growing and scrolls
+     instead of growing taller. */
+  max-height: 168px;
+  overflow-y: auto;
+}
+
+.reg-admin-student-list-items li {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  padding: 8px 0;
+  border-top: 1px solid var(--border);
+  font-size: 13px;
+}
+
+.reg-admin-student-list-items li:first-child {
+  border-top: none;
+}
+
+.reg-admin-student-id {
+  color: var(--text-h);
+  font-weight: 700;
+}
+
+.reg-admin-student-num {
+  display: inline-block;
+  margin-right: 4px;
+  color: var(--text-muted, #667085);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+.reg-admin-student-name {
+  color: var(--text-muted, #667085);
+}

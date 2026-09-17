@@ -1,0 +1,90 @@
+.student-req-card {
+  background: var(--card);
+  border-radius: 20px;
+  padding: 26px 32px 30px;
+  box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04), 0 1px 3px rgba(16, 24, 40, 0.06);
+}
+
+.student-req-card h3 {
+  margin: 0 0 8px;
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--text-h);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.student-req-hint {
+  margin: 0 0 20px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.student-req-error {
+  color: var(--danger, #DC2626);
+  font-size: 14px;
+}
+
+.student-req-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 0;
+  color: var(--text-muted);
+}
+
+.student-req-cta {
+  background: var(--accent-bg);
+  color: var(--text-h);
+  border: none;
+  border-radius: 999px;
+  padding: 10px 22px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.student-req-cta:hover {
+  background: var(--primary);
+}
+
+.student-req-save-row {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.student-req-save-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 40px;
+  padding: 0 20px;
+  border: none;
+  border-radius: 10px;
+  background: #16A34A;
+  color: #FFFFFF;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.student-req-save-btn:hover:not(:disabled) {
+  background: #15803D;
+}
+
+.student-req-save-btn:disabled {
+  opacity: 0.7;
+  cursor: default;
+}
+
+.student-req-save-error {
+  font-size: 13px;
+  color: var(--danger, #DC2626);
+}

@@ -1,0 +1,291 @@
+.grad-check-page {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* Search */
+
+.grad-check-search {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 18px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.grad-check-search:focus-within {
+  border-color: var(--role-primary);
+  box-shadow: 0 0 0 3px var(--role-accent-bg);
+}
+
+.grad-check-search svg {
+  flex-shrink: 0;
+  color: var(--role-primary);
+}
+
+.grad-check-search input {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 0;
+  background: transparent;
+  color: var(--text-h);
+  border: none;
+  outline: none;
+  font-size: 16px;
+}
+
+.grad-check-search input::placeholder {
+  color: var(--text-muted);
+}
+
+.grad-check-search button {
+  flex-shrink: 0;
+  padding: 9px 20px;
+  background: var(--role-primary);
+  color: #FFFFFF;
+  border: none;
+  border-radius: 10px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.grad-check-search button:hover {
+  background: var(--role-primary-hover);
+  color: #FFFFFF;
+  transform: none;
+}
+
+.grad-check-search button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Result card */
+
+.grad-check-card {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 24px 30px 28px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+}
+
+.grad-check-error {
+  color: var(--danger);
+  font-weight: 600;
+}
+
+/* Student header */
+
+.grad-check-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.grad-check-header h3 {
+  margin: 0 0 4px;
+  color: var(--text-h);
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.grad-check-sub {
+  margin: 0;
+  color: #4B5563;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+/* Graduation status */
+
+.grad-status-badge {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  gap: 8px;
+  padding: 8px 18px;
+  border-radius: 999px;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.grad-status-badge.graduated {
+  background: #F0FDF4;
+  color: #15803D;
+}
+
+.grad-status-badge.not-graduated {
+  background: #FEF2F2;
+  color: var(--danger);
+}
+
+/* Table sections */
+
+.grad-check-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.grad-check-section h4 {
+  margin: 0;
+  color: var(--text-h);
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.grad-check-table-wrap {
+  width: 100%;
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+}
+
+.grad-check-data-table {
+  width: 100%;
+  min-width: 650px;
+  background: var(--card);
+  border-collapse: collapse;
+}
+
+.grad-check-data-table th {
+  padding: 11px 14px;
+  background: var(--role-primary);
+  color: #FFFFFF;
+  text-align: left;
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.grad-check-data-table td {
+  padding: 11px 14px;
+  color: #1F2937;
+  border-bottom: 1px solid var(--border);
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.grad-check-data-table tbody tr {
+  transition: background 0.15s ease;
+}
+
+.grad-check-data-table tbody tr:hover {
+  background: var(--role-accent-bg);
+}
+
+.grad-check-data-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+/* Grade */
+
+.grad-grade {
+  display: inline-flex;
+  justify-content: center;
+  min-width: 28px;
+  padding: 4px 8px;
+  background: var(--role-accent-bg);
+  color: var(--role-primary-hover);
+  border-radius: 999px;
+  font-weight: 700;
+}
+
+/* Course status */
+
+.grad-course-status {
+  display: inline-flex;
+  padding: 5px 10px;
+  border-radius: 999px;
+  font-size: 12.5px;
+  font-weight: 700;
+}
+
+.grad-course-status.completed {
+  color: #15803D;
+}
+
+.grad-course-status.not-completed,
+.grad-course-status.incomplete {
+  color: #DC2626;
+}
+
+.grad-course-status.withdrawn {
+  color: #C2410C;
+}
+
+/* Graduation result */
+
+.grad-check-pass-note {
+  padding: 12px 16px;
+  background: #F0FDF4;
+  color: #15803D;
+  border-radius: 12px;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.grad-check-reasons {
+  padding: 16px 18px;
+  background: var(--role-accent-bg);
+  border-left: 4px solid var(--role-primary);
+  border-radius: 12px;
+}
+
+.grad-check-reasons h4 {
+  margin: 0 0 8px;
+  color: var(--role-primary-hover);
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.grad-check-reasons ul {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding-left: 20px;
+}
+
+.grad-check-reasons li {
+  color: #374151;
+  font-size: 15px;
+  font-weight: 500;
+}
+
+/* Mobile */
+
+@media (max-width: 600px) {
+  .grad-check-search {
+    flex-wrap: wrap;
+  }
+
+  .grad-check-search input {
+    min-width: 180px;
+  }
+
+  .grad-check-search button {
+    width: 100%;
+  }
+
+  .grad-check-card {
+    padding: 20px;
+  }
+
+  .grad-check-header {
+    flex-direction: column;
+  }
+}

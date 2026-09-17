@@ -1,0 +1,123 @@
+.profile-page {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  max-width: 640px;
+}
+
+.profile-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 24px 30px 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.profile-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.profile-avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  background: var(--role-accent-bg, var(--accent-bg));
+  color: var(--role-primary-hover, var(--text-h));
+  flex-shrink: 0;
+}
+
+.profile-header h3 {
+  margin: 0;
+  font-size: 19px;
+  font-weight: 700;
+  color: var(--text-h);
+}
+
+.profile-header p {
+  margin: 2px 0 0;
+  font-size: 14px;
+  color: var(--text-muted);
+}
+
+.profile-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-top: 1px solid var(--border);
+  padding-top: 16px;
+}
+
+.profile-row-label {
+  font-size: 14px;
+  color: var(--text-muted);
+}
+
+.profile-row-value {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-h);
+}
+
+.profile-section-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 16px;
+  color: var(--text-h);
+}
+
+.profile-advisor-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.profile-advisor-form select {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.profile-advisor-form button {
+  align-self: flex-start;
+  background: var(--role-primary, var(--primary));
+  color: #FFFFFF;
+}
+
+.profile-advisor-form button:hover:not(:disabled) {
+  background: var(--role-primary-hover, var(--primary));
+}
+
+.profile-advisor-form button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.profile-advisor-form button:disabled:hover {
+  background: var(--role-primary, var(--primary));
+  transform: none;
+}
+
+.profile-saved-note {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: #16A34A;
+}
+
+.profile-prereq-note {
+  margin: 4px 0 0;
+  font-size: 12.5px;
+  color: var(--text-muted);
+}

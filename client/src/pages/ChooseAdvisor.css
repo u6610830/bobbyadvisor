@@ -1,0 +1,168 @@
+.choose-advisor-page {
+  position: relative;
+  min-height: 100svh;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg);
+  box-sizing: border-box;
+  padding: 24px;
+}
+
+.choose-advisor-card {
+  width: 100%;
+  max-width: 640px;
+  background: var(--card);
+  border-radius: 24px;
+  border: 1px solid var(--border);
+  padding: 48px 56px 44px;
+  box-sizing: border-box;
+  box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04), 0 4px 12px rgba(16, 24, 40, 0.06);
+}
+
+.choose-advisor-logo {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  margin-bottom: 16px;
+}
+
+.choose-advisor-logo-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  color: var(--text);
+  flex-shrink: 0;
+}
+
+.choose-advisor-logo h1 {
+  margin: 0;
+  font-size: 26px;
+  font-weight: 800;
+  letter-spacing: -0.5px;
+  color: var(--text-h);
+}
+
+.choose-advisor-intro {
+  text-align: center;
+  font-size: 15px;
+  color: var(--text);
+  margin: 0 0 28px;
+  line-height: 1.5;
+}
+
+.choose-advisor-options {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.choose-advisor-option {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 12px;
+  background: #F7F8FA;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 14px 18px;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.choose-advisor-option:hover {
+  background: var(--accent-bg);
+}
+
+.choose-advisor-option.selected {
+  background: var(--accent-bg);
+  border-color: var(--accent-border);
+}
+
+.choose-advisor-option input {
+  width: auto;
+  margin: 0;
+  padding: 0;
+  accent-color: var(--primary-hover);
+}
+
+.choose-advisor-name {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-h);
+}
+
+.choose-advisor-dept {
+  font-size: 13px;
+  color: var(--text-muted);
+  text-align: right;
+}
+
+.choose-advisor-error {
+  margin: -8px 0 16px;
+  color: var(--danger);
+  font-size: 14px;
+}
+
+.choose-advisor-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.choose-advisor-signout {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: transparent;
+  color: var(--danger);
+  font-size: 14px;
+  font-weight: 600;
+  padding: 10px 14px;
+}
+
+.choose-advisor-signout:hover {
+  background: #FEF2F2;
+  transform: none;
+}
+
+.choose-advisor-submit {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--primary);
+  color: var(--text-h);
+  border-radius: 999px;
+  padding: 14px 32px;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.choose-advisor-submit:hover {
+  background: var(--primary-hover);
+  color: #FFFFFF;
+  transform: none;
+}
+
+@media (max-width: 560px) {
+  .choose-advisor-card {
+    padding: 36px 24px 32px;
+  }
+
+  .choose-advisor-option {
+    grid-template-columns: auto 1fr;
+  }
+
+  .choose-advisor-dept {
+    grid-column: 2;
+    text-align: left;
+  }
+}

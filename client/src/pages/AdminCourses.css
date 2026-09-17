@@ -1,0 +1,222 @@
+.admin-courses-page {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.admin-courses-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.admin-courses-help {
+  margin: 12px 0 0;
+  color: var(--text-muted);
+  max-width: 760px;
+}
+
+.admin-courses-actions,
+.admin-course-editor-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.admin-courses-actions button,
+.admin-course-editor-actions button,
+.admin-courses-table button,
+.admin-course-editor .icon-only {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 36px;
+  padding: 0 14px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text-h);
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.admin-courses-primary {
+  background: #7c3aed !important;
+  color: white !important;
+  border-color: transparent !important;
+}
+
+.admin-courses-error {
+  padding: 12px 14px;
+  border: 1px solid #ef4444;
+  border-radius: 10px;
+}
+
+.admin-course-group-manager {
+  padding: 16px 20px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--bg);
+}
+
+.admin-course-group-manager h4 {
+  margin: 0 0 10px;
+}
+
+.admin-course-group-manager ul {
+  list-style: none;
+  margin: 0 0 12px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.admin-course-group-manager li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+}
+
+.admin-course-group-manager-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.admin-course-group-manager-actions button,
+.admin-course-group-manager > button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text-h);
+  border-radius: 8px;
+  padding: 5px 10px;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.admin-course-editor {
+  padding: 20px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--bg);
+}
+
+.admin-course-editor-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+
+.admin-course-editor-head h3 {
+  margin: 0;
+}
+
+.admin-course-form-grid {
+  display: grid;
+  grid-template-columns: 1fr 2fr 0.7fr;
+  gap: 14px;
+}
+
+.admin-course-form-grid label {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  font-weight: 700;
+  color: var(--text-h);
+}
+
+.admin-course-form-grid input,
+.admin-course-form-grid select,
+.admin-course-form-grid textarea {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  padding: 10px 12px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+}
+
+
+.admin-course-description-field {
+  grid-column: 1 / -1;
+}
+
+.admin-course-editor-actions {
+  justify-content: flex-end;
+  margin-top: 16px;
+}
+
+.admin-courses-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--bg);
+}
+
+.admin-courses-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.admin-courses-table thead th {
+  background: #ede9fe !important;
+}
+
+.admin-courses-table th,
+.admin-courses-table td {
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  vertical-align: top;
+}
+
+.admin-courses-table th {
+  color: var(--text-h);
+  font-size: 14px;
+}
+
+.admin-courses-table tr:last-child td {
+  border-bottom: 0;
+}
+
+.admin-course-description-cell {
+  min-width: 320px;
+  max-width: 560px;
+  white-space: normal;
+  line-height: 1.45;
+}
+
+.admin-courses-empty {
+  padding: 24px;
+  text-align: center;
+  color: var(--text-muted);
+  border: 1px dashed var(--border);
+  border-radius: 12px;
+}
+
+@media (max-width: 900px) {
+  .admin-courses-header {
+    flex-direction: column;
+  }
+
+  .admin-course-form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-course-description-field {
+    grid-column: auto;
+  }
+}

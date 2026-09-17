@@ -1,0 +1,132 @@
+.prereq-student-page {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.prereq-student-page h2 {
+  margin: 0;
+}
+
+.prereq-student-sub {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
+.prereq-student-group-picker {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 12px 16px;
+}
+
+.prereq-student-group-picker .prereq-student-group-label {
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--text-h);
+}
+
+.prereq-student-group-value {
+  font-weight: 700;
+  font-size: 14px;
+  color: var(--primary, #2f6feb);
+}
+
+.prereq-student-group-hint {
+  font-size: 12.5px;
+  color: var(--text-muted);
+}
+
+.prereq-student-error {
+  color: var(--danger);
+  font-weight: 600;
+}
+
+.prereq-student-empty {
+  color: var(--text-muted);
+}
+
+.prereq-student-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.prereq-student-row {
+  display: grid;
+  grid-template-columns: 220px 1fr 220px;
+  gap: 14px;
+  align-items: center;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 14px 18px;
+}
+
+.prereq-student-row-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.prereq-student-code {
+  font-weight: 700;
+  color: var(--text-h);
+  font-size: 14.5px;
+}
+
+.prereq-student-title {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.prereq-student-row-rule {
+  font-size: 13.5px;
+  color: var(--text);
+  line-height: 1.5;
+}
+
+.prereq-student-row-status {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.prereq-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  font-weight: 600;
+  padding: 6px 10px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.prereq-status-ok {
+  background: #DCFCE7;
+  color: #16A34A;
+}
+
+.prereq-status-blocked {
+  background: #FEF2F2;
+  color: var(--danger);
+}
+
+.prereq-status-manual {
+  background: #FEF9C3;
+  color: #92700B;
+}
+
+@media (max-width: 800px) {
+  .prereq-student-row {
+    grid-template-columns: 1fr;
+  }
+  .prereq-student-row-status {
+    justify-content: flex-start;
+  }
+}

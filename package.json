@@ -1,0 +1,8 @@
+{
+  "name": "merged-project",
+  "private": true,
+  "scripts": {
+    "dev": "npm --prefix server run dev & npm --prefix client run dev",
+    "start": "npm --prefix server start & npm --prefix client run dev"
+  }
+}

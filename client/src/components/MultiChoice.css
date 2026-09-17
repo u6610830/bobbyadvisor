@@ -1,0 +1,152 @@
+.multi-choice {
+  width: 100%;
+}
+
+.multi-choice-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.multi-choice-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 46px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg);
+  color: var(--text-h);
+  font-family: inherit;
+  font-size: 16px;
+  font-weight: 500;
+  line-height: 1.35;
+  text-align: left;
+  cursor: pointer;
+  transition: 0.15s ease;
+}
+
+.multi-choice-option:hover:not(:disabled),
+.multi-choice-option.selected {
+  border-color: var(--primary);
+  background: var(--accent-bg);
+}
+
+.multi-choice-option.selected {
+  font-weight: 600;
+}
+
+.multi-choice-option:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.multi-choice-check {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  border: 1.5px solid var(--border);
+  border-radius: 6px;
+}
+
+.multi-choice-option.selected .multi-choice-check {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: white;
+}
+
+.multi-choice-text {
+  flex: 1;
+  overflow-wrap: anywhere;
+}
+
+.multi-choice-custom-badge {
+  padding: 3px 7px;
+  border-radius: 999px;
+  background: rgba(247, 201, 72, 0.18);
+  font-size: 10px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.multi-choice-custom {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+
+.multi-choice-custom p {
+  margin: 0 0 8px;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.multi-choice-custom form {
+  display: flex;
+  gap: 8px;
+}
+
+.multi-choice-custom input {
+  flex: 1;
+  min-width: 0;
+  height: 44px;
+  padding: 0 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--card);
+  color: var(--text-h);
+  font: inherit;
+  outline: none;
+}
+
+.multi-choice-custom input:focus {
+  border-color: var(--primary);
+}
+
+.multi-choice-custom form button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 44px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 10px;
+  background: var(--primary);
+  color: var(--text-h);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.multi-choice-custom form button:hover:not(:disabled) {
+  background: var(--primary-hover);
+}
+
+.multi-choice-custom form button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.multi-choice-custom small {
+  display: block;
+  margin-top: 8px;
+  color: var(--text-muted);
+}
+
+@media (max-width: 640px) {
+  .multi-choice-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .multi-choice-custom form {
+    flex-direction: column;
+  }
+
+  .multi-choice-custom form button {
+    width: 100%;
+  }
+}
