@@ -13,7 +13,11 @@ import { getCurriculumForStudent, getCurriculumGroups } from "../utils/curriculu
 import { normalizeCourseCode } from "../utils/courseCode.js";
 import "./Dashboard.css";
 
-const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:3001";
+const API_BASE =
+  import.meta.env.VITE_API_BASE ||
+  (import.meta.env.PROD
+    ? "https://api.bobbyadvisor.org"
+    : "http://localhost:3001");
 const DEFAULT_CREDITS_REQUIRED = 132;
 
 const STATUS_CLASS = {

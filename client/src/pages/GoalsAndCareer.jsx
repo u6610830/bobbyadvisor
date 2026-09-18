@@ -20,8 +20,12 @@ import {
 } from "../utils/electiveGroup.js";
 import "./GoalsAndCareer.css";
 
-const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:3001";
-
+const API_BASE =
+  import.meta.env.VITE_API_BASE ||
+  (import.meta.env.PROD
+    ? "https://api.bobbyadvisor.org"
+    : "http://localhost:3001");
+    
 // ── GroupChoiceInput ────────────────────────────────────────────────────
 // Single-select "Search Suggestions" input for whichever groups Admin has
 // ticked as a "choose one of these" set on Upload Table Data (Major
