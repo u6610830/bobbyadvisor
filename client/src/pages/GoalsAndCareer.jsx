@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import axios from "axios";
-import { Sparkles, Check } from "lucide-react";
 import MultiChoice from "../components/MultiChoice.jsx";
 import { GOAL_OPTIONS, CAREER_OPTIONS } from "../data/goalCareerOptions.js";
 import { getStudentGoalsCareer, setStudentGoalsCareer } from "../utils/goalsCareer.js";
@@ -21,7 +20,7 @@ import {
 } from "../utils/electiveGroup.js";
 import "./GoalsAndCareer.css";
 
-const API_BASE = import.meta.env.VITE_API_BASE || (import.meta.env.PROD ? "https://api.bobbyadvisor.org" : "http://localhost:3001");
+const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:3001";
 
 // ── GroupChoiceInput ────────────────────────────────────────────────────
 // Single-select "Search Suggestions" input for whichever groups Admin has
@@ -108,18 +107,6 @@ function GoalsAndCareer({ studentId, curriculumYear = null, onNavigate }) {
   const [progress, setProgress] = useState(null); // { missingCount, block } | null
   const [, setCurriculaVersion] = useState(0);
 
-  // Course suggestions generated from Goals + Career Interest — same
-  // POST /course-recommendations Course Recommendation uses, surfaced
-  // right here too so a student sees the effect of what they just typed
-  // without leaving the page.
-  const [recommendations, setRecommendations] = useState([]);
-  const [recLoading, setRecLoading] = useState(false);
-  const [recError, setRecError] = useState("");
-  const [recNeedsGoals, setRecNeedsGoals] = useState(false);
-  const [addedCodes, setAddedCodes] = useState(() => new Set());
-  const [addingCode, setAddingCode] = useState(null);
-  const hasAutoFetchedRecs = useRef(false);
-
   // Load this student's saved Goals & Career Interest from their own
   // record (server-side, not localStorage) — see server/supabase_goals_career.sql.
   useEffect(() => {
@@ -171,62 +158,6 @@ function GoalsAndCareer({ studentId, curriculumYear = null, onNavigate }) {
       })
       .finally(() => setGoalsSaving(false));
   }, [studentId, goals, careerInterests]);
-
-  const loadRecommendations = () => {
-    if (!studentId) return;
-    setRecLoading(true);
-    setRecError("");
-    setRecNeedsGoals(false);
-    axios
-      .post(`${API_BASE}/course-recommendations`, { student_id: studentId })
-      .then((res) => setRecommendations(res.data?.recommendations || []))
-      .catch((err) => {
-        console.error("Failed to load course suggestions:", err);
-        setRecNeedsGoals(Boolean(err.response?.data?.needsGoals));
-        setRecError(err.response?.data?.error || "Failed to load course suggestions.");
-        setRecommendations([]);
-      })
-      .finally(() => setRecLoading(false));
-  };
-
-  // Auto-fetch once, right after the saved Goals/Career load in, as long
-  // as there's actually something to base suggestions on — after that,
-  // the student refreshes manually (via the button below) rather than on
-  // every keystroke, since each refresh is a real AI call.
-  useEffect(() => {
-    if (!hasLoadedGoals.current || hasAutoFetchedRecs.current) return;
-    if (goalsLoading) return;
-    if (goals.length === 0 && careerInterests.length === 0) return;
-    hasAutoFetchedRecs.current = true;
-    loadRecommendations();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [goalsLoading, goals, careerInterests]);
-
-  // Adds one recommended course to the student's "Requested Unscheduled
-  // Courses" list (Planner). That endpoint replaces the whole list per
-  // save, so we read the current one, append this course, and save it back.
-  const handleAddToPlan = async (course) => {
-    if (!studentId || addedCodes.has(course.code)) return;
-    setAddingCode(course.code);
-    try {
-      const existingRes = await axios.get(
-        `${API_BASE}/requested-courses/${encodeURIComponent(studentId)}`
-      );
-      const existingLabels = (existingRes.data?.requestedCourses || []).map(
-        (row) => `${row.course_code} ${row.course_name || ""}`.trim()
-      );
-      await axios.post(`${API_BASE}/requested-courses`, {
-        studentId,
-        courses: [...existingLabels, `${course.code} ${course.title || ""}`.trim()],
-      });
-      setAddedCodes((prev) => new Set(prev).add(course.code));
-    } catch (err) {
-      console.error("Failed to add course to plan:", err);
-      setRecError(err.response?.data?.error || "Could not add that course to your plan.");
-    } finally {
-      setAddingCode(null);
-    }
-  };
 
   // Curriculum requirements live in the database — refresh the local cache
   // on mount, and re-render (via the unused bit of state above) whenever it
@@ -385,73 +316,8 @@ function GoalsAndCareer({ studentId, curriculumYear = null, onNavigate }) {
         {!goalsLoading && goalsError && <p className="goals-group-error">{goalsError}</p>}
         {!goalsLoading && !goalsError && !goalsSaving && (
           <p className="goals-save-status">
-            Bobby Advisor and Course Recommendation use these choices to personalize suggestions.
+            Bobby Advisor and Course Recommendation use these choices to personalize suggestions there.
           </p>
-        )}
-      </div>
-
-      <div className="goals-card">
-        <div className="goals-rec-header">
-          <h3>
-            <Sparkles size={18} strokeWidth={2} />
-            Suggested Courses
-          </h3>
-          <button
-            type="button"
-            className="goals-rec-refresh-btn"
-            onClick={loadRecommendations}
-            disabled={recLoading || goalsLoading}
-          >
-            {recLoading ? "Thinking…" : "Suggest Courses"}
-          </button>
-        </div>
-
-        <p className="goals-group-hint">
-          Based on the Goals and Career Interest above — edit them, then click
-          Suggest Courses again for updated picks.
-        </p>
-
-        {recLoading && <p className="goals-group-hint">Finding courses that fit…</p>}
-
-        {!recLoading && recError && (
-          <p className="goals-group-error">
-            {recError}
-            {recNeedsGoals && " Add a Goal or Career Interest above first."}
-          </p>
-        )}
-
-        {!recLoading && !recError && recommendations.length > 0 && (
-          <ul className="goals-rec-list">
-            {recommendations.map((course) => {
-              const added = addedCodes.has(course.code);
-              return (
-                <li key={course.code}>
-                  <div>
-                    <span className="goals-rec-item">
-                      <strong>{course.code}</strong> {course.title || "Untitled Course"}
-                    </span>
-                    {course.reason && <p className="goals-rec-reason">{course.reason}</p>}
-                  </div>
-                  <button
-                    type="button"
-                    className={`goals-rec-add-btn${added ? " added" : ""}`}
-                    disabled={added || addingCode === course.code}
-                    onClick={() => handleAddToPlan(course)}
-                  >
-                    {added ? (
-                      <>
-                        <Check size={14} /> Added
-                      </>
-                    ) : addingCode === course.code ? (
-                      "Adding…"
-                    ) : (
-                      "Add to Plan"
-                    )}
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
         )}
       </div>
 
