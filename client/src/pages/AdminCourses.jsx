@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import axios from "axios";
 import { Plus, RefreshCcw, Save, X, Settings } from "lucide-react";
 import { getCourseGroups, addCourseGroup, renameCourseGroup, deleteCourseGroup } from "../utils/courseGroups.js";
@@ -25,7 +25,7 @@ function AdminCourses() {
   const [saving, setSaving] = useState(false);
   const [courseGroups, setCourseGroups] = useState(getCourseGroups());
   const [showGroupManager, setShowGroupManager] = useState(false);
-
+  const editorRef = useRef(null);
   const loadCourses = async () => {
     try {
       setLoading(true);
@@ -55,7 +55,15 @@ function AdminCourses() {
   useEffect(() => {
     loadCourses();
   }, []);
+  
+  useEffect(() => {
+  if (!editingCode || !editorRef.current) return;
 
+  editorRef.current.scrollIntoView({
+    behavior: "smooth",
+    block: "start",
+  });
+  }, [editingCode]);
   const startEdit = (course) => {
     setEditingCode(course.course_code);
     setShowAdd(false);
@@ -213,7 +221,7 @@ function AdminCourses() {
       )}
 
       {(showAdd || editingCode) && (
-        <div className="admin-course-editor">
+        <div className="admin-course-editor" ref={editorRef}>
           <div className="admin-course-editor-head">
             <h3>
               {showAdd

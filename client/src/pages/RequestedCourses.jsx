@@ -1,34 +1,21 @@
 import { useEffect, useMemo, useState } from "react";
 import axios from "axios";
-import { RefreshCcw, Users } from "lucide-react";
+import {
+  RefreshCcw,
+  Users,
+  ChevronDown,
+} from "lucide-react";
 
-import "./RequestedCourses.css";
+import { getAllStudentsForAdmin } from "../utils/students.js";
 
-const API_BASE = import.meta.env.VITE_API_BASE || (import.meta.env.PROD ? "https://api.bobbyadvisor.org" : "http://localhost:3001");
+// Reuse the exact same styling as Course Registrations
+import "./AdminCourseRegistrations.css";
 
-// --------------------------------------------------
-// Requested Courses
-// --------------------------------------------------
-//
-// Shows every course a student has asked for through Planner >
-// "Requested Unscheduled Courses" -> Save.
-//
-// Data comes from:
-//
-// GET /requested-courses (optionally ?advisor_id= to scope to one
-// advisor's advisees)
-//
-// The backend returns:
-//
-// {
-//   requestedCourses: [
-//     { id, student_id, course_code, course_name, created_at }
-//   ]
-// }
-//
-// One row = one student requesting one course, so the demand count for a
-// course is the number of distinct student_id rows for that course_code.
-// --------------------------------------------------
+const API_BASE =
+  import.meta.env.VITE_API_BASE ||
+  (import.meta.env.PROD
+    ? "https://api.bobbyadvisor.org"
+    : "http://localhost:3001");
 
 function RequestedCourses({
   title = "Requested Courses",
@@ -39,6 +26,52 @@ function RequestedCourses({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
+  // Which course detail is currently opened
+  const [expandedCourses, setExpandedCourses] = useState(
+    () => new Set()
+  );
+
+  const toggleCourse = (courseCode) => {
+    setExpandedCourses((prev) => {
+      const next = new Set(prev);
+
+      if (next.has(courseCode)) {
+        next.delete(courseCode);
+      } else {
+        next.add(courseCode);
+      }
+
+      return next;
+    });
+  };
+
+  // ------------------------------------------------
+  // Student roster
+  // ------------------------------------------------
+
+  const roster = useMemo(() => {
+    const students = getAllStudentsForAdmin();
+
+    return Array.isArray(students)
+      ? students
+      : [];
+  }, []);
+
+  const studentById = useMemo(() => {
+    const map = new Map();
+
+    roster.forEach((student) => {
+      if (student.studentId) {
+        map.set(
+          String(student.studentId),
+          student
+        );
+      }
+    });
+
+    return map;
+  }, [roster]);
+
   // ------------------------------------------------
   // Load requested courses
   // ------------------------------------------------
@@ -48,15 +81,34 @@ function RequestedCourses({
       setLoading(true);
       setError("");
 
-      const response = await axios.get(`${API_BASE}/requested-courses`, {
-        params: advisorId ? { advisor_id: advisorId } : {},
-      });
+      const response = await axios.get(
+        `${API_BASE}/requested-courses`,
+        {
+          params: advisorId
+            ? { advisor_id: advisorId }
+            : {},
+        }
+      );
 
-      const rows = response.data?.requestedCourses;
-      setRequestedCourses(Array.isArray(rows) ? rows : []);
+      const rows =
+        response.data?.requestedCourses;
+
+      setRequestedCourses(
+        Array.isArray(rows)
+          ? rows
+          : []
+      );
     } catch (error) {
-      console.error("Failed to load requested courses:", error);
-      setError(error.response?.data?.error || "Failed to load requested courses.");
+      console.error(
+        "Failed to load requested courses:",
+        error
+      );
+
+      setError(
+        error.response?.data?.error ||
+          "Failed to load requested courses."
+      );
+
       setRequestedCourses([]);
     } finally {
       setLoading(false);
@@ -68,37 +120,77 @@ function RequestedCourses({
   }, [advisorId]);
 
   // ------------------------------------------------
-  // Group by course — one entry per student counts as one interested
-  // student, so students are deduped with a Set even if a stale
-  // duplicate row ever ends up in the table.
+  // Group by course
   // ------------------------------------------------
 
   const byCourse = useMemo(() => {
     const groups = new Map();
 
     requestedCourses.forEach((row) => {
-      const courseCode = String(row.course_code || "").trim().toUpperCase();
+      const courseCode = String(
+        row.course_code || ""
+      )
+        .trim()
+        .toUpperCase();
+
       if (!courseCode) return;
 
       if (!groups.has(courseCode)) {
-        groups.set(courseCode, { code: courseCode, name: "", students: new Set() });
+        groups.set(courseCode, []);
       }
 
-      const group = groups.get(courseCode);
-      if (!group.name && row.course_name) group.name = row.course_name;
-      if (row.student_id) group.students.add(row.student_id);
+      groups
+        .get(courseCode)
+        .push(row);
     });
 
-    return [...groups.values()]
-      .map((group) => ({ code: group.code, name: group.name, count: group.students.size }))
-      .sort((a, b) => {
-        if (b.count !== a.count) return b.count - a.count;
-        return a.code.localeCompare(b.code);
-      });
+    return [...groups.entries()]
+      .map(([courseCode, rows]) => {
+        // Prevent duplicate student rows
+        const students = new Map();
+
+        rows.forEach((row) => {
+          if (!row.student_id) return;
+
+          const id =
+            String(row.student_id);
+
+          if (!students.has(id)) {
+            students.set(id, row);
+          }
+        });
+
+        return [
+          courseCode,
+          [...students.values()],
+        ];
+      })
+      .sort(
+        ([courseA, rowsA], [courseB, rowsB]) => {
+          if (rowsB.length !== rowsA.length) {
+            return (
+              rowsB.length -
+              rowsA.length
+            );
+          }
+
+          return courseA.localeCompare(
+            courseB
+          );
+        }
+      );
   }, [requestedCourses]);
 
-  const totalInterestedStudents = useMemo(() => {
-    return new Set(requestedCourses.map((row) => row.student_id).filter(Boolean)).size;
+  // ------------------------------------------------
+  // Total students
+  // ------------------------------------------------
+
+  const uniqueStudents = useMemo(() => {
+    return new Set(
+      requestedCourses
+        .map((row) => row.student_id)
+        .filter(Boolean)
+    ).size;
   }, [requestedCourses]);
 
   // ------------------------------------------------
@@ -106,49 +198,94 @@ function RequestedCourses({
   // ------------------------------------------------
 
   return (
-    <div className="hdc-page">
+    <div className="reg-admin-page">
+
       {/* Header */}
 
-      <div className="hdc-header">
-        <span className="admin-summary-title-pill">{title}</span>
+      <div className="reg-admin-header">
+        <span className="admin-summary-title-pill">
+          {title}
+        </span>
 
-        <button type="button" className="hdc-refresh" onClick={load} disabled={loading}>
-          <RefreshCcw size={15} strokeWidth={2} />
-          <span>{loading ? "Loading..." : "Refresh"}</span>
+        <button
+          type="button"
+          className="reg-admin-refresh"
+          onClick={load}
+          disabled={loading}
+        >
+          <RefreshCcw
+            size={15}
+            strokeWidth={2}
+          />
+
+          <span>
+            {loading
+              ? "Loading..."
+              : "Refresh"}
+          </span>
         </button>
       </div>
 
       {/* Description */}
 
-      <p className="hdc-help">
-        Courses students asked for through Planner's "Requested Unscheduled Courses" because they
-        aren't opening next semester. This is a live view for {audience} of how many students want
-        each course.
+      <p className="reg-admin-help">
+        Courses students requested because
+        they are not currently available in
+        the upcoming timetable. This is a
+        live view for {audience} showing how
+        many students are interested in each
+        course.
       </p>
 
       {/* Summary */}
 
-      {!loading && !error && byCourse.length > 0 && (
-        <div className="hdc-summary">
-          <span>
-            Courses requested: <strong>{byCourse.length}</strong>
-          </span>
-          <span>
-            Students: <strong>{totalInterestedStudents}</strong>
-          </span>
-        </div>
-      )}
+      {!loading &&
+        !error &&
+        requestedCourses.length > 0 && (
+          <div className="reg-admin-summary">
+
+            <span>
+              Total requests:{" "}
+              <strong>
+                {requestedCourses.length}
+              </strong>
+            </span>
+
+            <span>
+              Students:{" "}
+              <strong>
+                {uniqueStudents}
+              </strong>
+            </span>
+
+            <span>
+              Courses:{" "}
+              <strong>
+                {byCourse.length}
+              </strong>
+            </span>
+
+          </div>
+        )}
 
       {/* Loading */}
 
-      {loading && <p>Loading requested courses...</p>}
+      {loading && (
+        <p>
+          Loading requested courses...
+        </p>
+      )}
 
       {/* Error */}
 
       {!loading && error && (
-        <div className="hdc-error">
+        <div className="reg-admin-error">
           <p>{error}</p>
-          <button type="button" onClick={load}>
+
+          <button
+            type="button"
+            onClick={load}
+          >
             Try Again
           </button>
         </div>
@@ -156,33 +293,178 @@ function RequestedCourses({
 
       {/* Empty */}
 
-      {!loading && !error && byCourse.length === 0 && (
-        <p className="hdc-empty">No student has requested an unscheduled course yet.</p>
-      )}
+      {!loading &&
+        !error &&
+        byCourse.length === 0 && (
+          <p className="reg-admin-empty">
+            No student has requested an
+            unscheduled course yet.
+          </p>
+        )}
 
-      {/* Course list — ranked by demand, one plain row per course. Simple
-          list instead of a wall of same-size cards, so it stays easy to
-          scan even with many courses. */}
+      {/* Course Cards */}
 
-      {!loading && !error && byCourse.length > 0 && (
-        <div className="hdc-list">
-          {byCourse.map((group, index) => (
-            <div className="hdc-row" key={group.code}>
-              <span className="hdc-rank">{index + 1}</span>
+      {!loading &&
+        !error &&
+        byCourse.length > 0 && (
+          <div className="reg-admin-grid">
 
-              <div className="hdc-row-info">
-                <span className="hdc-row-code">{group.code}</span>
-                {group.name && <span className="hdc-row-name">{group.name}</span>}
-              </div>
+            {byCourse.map(
+              ([courseCode, rows]) => {
+                const isOpen =
+                  expandedCourses.has(
+                    courseCode
+                  );
 
-              <span className="hdc-count">
-                <Users size={14} strokeWidth={2} />
-                {group.count} {group.count === 1 ? "student" : "students"}
-              </span>
-            </div>
-          ))}
-        </div>
-      )}
+                const courseName =
+                  rows.find(
+                    (row) =>
+                      row.course_name
+                  )?.course_name || "";
+
+                return (
+                  <div
+                    className="reg-admin-card"
+                    key={courseCode}
+                  >
+
+                    {/* Course header */}
+
+                    <div className="reg-admin-card-head">
+
+                      <h4>
+                        {courseCode}
+                      </h4>
+
+                      <span className="reg-admin-count">
+                        <Users
+                          size={14}
+                          strokeWidth={2}
+                        />
+
+                        {rows.length}
+                      </span>
+
+                    </div>
+
+                    {/* Requested students */}
+
+                    <div className="reg-admin-sections">
+
+                      <div className="reg-admin-section">
+
+                        <button
+                          type="button"
+                          className="reg-admin-section-row"
+                          onClick={() =>
+                            toggleCourse(
+                              courseCode
+                            )
+                          }
+                          aria-expanded={
+                            isOpen
+                          }
+                        >
+
+                          <span className="reg-admin-section-label">
+                            {courseName ||
+                              "Interested Students"}
+                          </span>
+
+                          <span className="reg-admin-section-count">
+                            <Users
+                              size={13}
+                              strokeWidth={2}
+                            />
+
+                            {rows.length}
+                          </span>
+
+                          <span className="reg-admin-section-detail">
+                            {isOpen
+                              ? "Hide"
+                              : "Detail"}
+
+                            <ChevronDown
+                              size={14}
+                              strokeWidth={2}
+                              className={
+                                isOpen
+                                  ? "reg-admin-chevron open"
+                                  : "reg-admin-chevron"
+                              }
+                            />
+                          </span>
+
+                        </button>
+
+                        {/* Student detail */}
+
+                        {isOpen && (
+                          <div className="reg-admin-student-list">
+
+                            <div className="reg-admin-student-list-head">
+                              Interested Students
+                            </div>
+
+                            <ul className="reg-admin-student-list-items">
+
+                              {rows.map(
+                                (row, index) => {
+                                  const student =
+                                    studentById.get(
+                                      String(
+                                        row.student_id
+                                      )
+                                    );
+
+                                  return (
+                                    <li
+                                      key={
+                                        row.id ??
+                                        `${courseCode}-${row.student_id}`
+                                      }
+                                    >
+
+                                      <span className="reg-admin-student-id">
+
+                                        <span className="reg-admin-student-num">
+                                          {index + 1}).
+                                        </span>
+
+                                        {row.student_id}
+
+                                      </span>
+
+                                      {student?.displayName && (
+                                        <span className="reg-admin-student-name">
+                                          {
+                                            student.displayName
+                                          }
+                                        </span>
+                                      )}
+
+                                    </li>
+                                  );
+                                }
+                              )}
+
+                            </ul>
+
+                          </div>
+                        )}
+
+                      </div>
+
+                    </div>
+
+                  </div>
+                );
+              }
+            )}
+
+          </div>
+        )}
     </div>
   );
 }
