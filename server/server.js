@@ -2,7 +2,6 @@ import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
 import multer from "multer";
-import fs from "fs";
 import { GoogleGenAI } from "@google/genai";
 import { createClient } from "@supabase/supabase-js";
 import supabase from "./supabase.js";
@@ -15,8 +14,16 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+const MAX_UPLOAD_BYTES = 10 * 1024 * 1024; // 10 MB
+
+// Keep uploads in memory. Cloudflare Workers cannot create a normal
+// persistent "uploads/" directory at module startup, and these files are
+// only needed long enough to send their bytes to Gemini.
 const upload = multer({
-  dest: "uploads/"
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: MAX_UPLOAD_BYTES,
+  },
 });
 
 const client = new GoogleGenAI({
@@ -53,6 +60,9 @@ function getGeminiHttpStatus(error) {
   }
 
   const raw = String(error?.message || "");
+  // Gemini prepay depletion is a billing error (402), even though the
+  // API may also label it RESOURCE_EXHAUSTED.
+  if (/prepayment credits|credits are depleted|billing|\b402\b/i.test(raw)) return 402;
   if (/RESOURCE_EXHAUSTED|\b429\b/i.test(raw)) return 429;
   if (/UNAVAILABLE|high demand|overloaded|\b503\b/i.test(raw)) return 503;
   if (/PERMISSION_DENIED|API key|\b403\b/i.test(raw)) return 403;
@@ -657,8 +667,8 @@ app.post("/extract", upload.single("image"), async (req, res) => {
 
     console.log("Extracting grades for student:", studentId);
 
-    // Read image
-    const imageBuffer = fs.readFileSync(req.file.path);
+    // Multer memoryStorage exposes the uploaded bytes directly.
+    const imageBuffer = req.file.buffer;
     const base64 = imageBuffer.toString("base64");
 
     // Send image to Gemini
@@ -765,10 +775,7 @@ Unknown -->2/2024 CSX3002 OBJECT-ORIENTED CONCEPTS AND PROGRAMMING (3 Credits)
       throw new Error(error.message);
     }
 
-    // Delete uploaded image
-    if (fs.existsSync(req.file.path)) {
-      fs.unlinkSync(req.file.path);
-    }
+    // No cleanup is needed: memoryStorage is request-scoped.
 
     // Send saved grades back to frontend
     res.json({
@@ -779,10 +786,7 @@ Unknown -->2/2024 CSX3002 OBJECT-ORIENTED CONCEPTS AND PROGRAMMING (3 Credits)
   } catch (error) {
     console.error("POST /extract error:", error);
 
-    // Delete image if something went wrong
-    if (req.file && fs.existsSync(req.file.path)) {
-      fs.unlinkSync(req.file.path);
-    }
+    // No temporary disk file exists when using memoryStorage.
 
     const status = getGeminiHttpStatus(error);
     res.status(status).json({
@@ -1009,7 +1013,7 @@ app.post("/extract-timetable", upload.single("file"), async (req, res) => {
 
     console.log("Extracting timetable from:", req.file.originalname);
 
-    const fileBuffer = fs.readFileSync(req.file.path);
+    const fileBuffer = req.file.buffer;
     const base64 = fileBuffer.toString("base64");
 
     const response = await generateGeminiContent({
@@ -1242,18 +1246,14 @@ Return exactly this shape:
       );
     }
 
-    if (fs.existsSync(req.file.path)) {
-      fs.unlinkSync(req.file.path);
-    }
+    // No cleanup is needed: memoryStorage is request-scoped.
 
     res.json({ classes });
 
   } catch (error) {
     console.error("POST /extract-timetable error:", error);
 
-    if (req.file && fs.existsSync(req.file.path)) {
-      fs.unlinkSync(req.file.path);
-    }
+    // No temporary disk file exists when using memoryStorage.
 
     const status = getGeminiHttpStatus(error);
     res.status(status).json({
@@ -1552,15 +1552,13 @@ app.post("/extract-prerequisites", upload.single("file"), async (req, res) => {
       "application/pdf",
     ];
     if (!SUPPORTED_MIME_TYPES.includes(req.file.mimetype)) {
-      if (fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
       return res.status(400).json({
         error: `File type "${req.file.mimetype || "unknown"}" is not supported. Please upload a JPG, PNG, or PDF file only.`,
       });
     }
 
-    const fileBuffer = fs.readFileSync(req.file.path);
-    if (fileBuffer.length === 0) {
-      if (fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+    const fileBuffer = req.file.buffer;
+    if (!fileBuffer || fileBuffer.length === 0) {
       return res.status(400).json({ error: "The uploaded file is empty. Please try a different file." });
     }
     const base64 = fileBuffer.toString("base64");
@@ -1618,8 +1616,6 @@ Return exactly this shape:
 
     const result = JSON.parse(cleanedText);
 
-    if (fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
-
     if (!result.rows || !Array.isArray(result.rows)) {
       throw new Error("Invalid prerequisite data returned by Gemini");
     }
@@ -1636,8 +1632,6 @@ Return exactly this shape:
 
     res.json({ rows });
   } catch (error) {
-    if (req.file?.path && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
-
     const raw = String(error?.message || "");
     const status = getGeminiHttpStatus(error);
     let friendly = friendlyGeminiError(error);
@@ -2149,6 +2143,10 @@ function friendlyGeminiError(error) {
   );
   console.error("Full error:", error);
   console.error("======================================");
+
+  if (status === 402) {
+    return "Gemini API billing credits are depleted. Add funds to the Gemini API project in Google AI Studio before trying again.";
+  }
 
   if (status === 429) {
     return "Gemini API quota/rate limit reached. The server retried automatically, but the limit is still active. Please try again in a moment.";
@@ -4382,6 +4380,35 @@ app.put("/courses/:courseCode", async (req, res) => {
       "Unknown server error",
   });
 }
+});
+
+// ------------------------------------------------
+// UPLOAD / FALLBACK ERROR HANDLING
+// ------------------------------------------------
+// Multer errors occur before the route handler runs, so handle them here
+// to keep API responses JSON instead of Express's default HTML error page.
+app.use((error, req, res, next) => {
+  if (error instanceof multer.MulterError) {
+    if (error.code === "LIMIT_FILE_SIZE") {
+      return res.status(413).json({
+        error: "Uploaded file is too large. Maximum file size is 10 MB.",
+      });
+    }
+
+    return res.status(400).json({
+      error: `Upload failed: ${error.message}`,
+    });
+  }
+
+  next(error);
+});
+
+app.use((error, req, res, next) => {
+  console.error("Unhandled server error:", error);
+  if (res.headersSent) return next(error);
+  return res.status(500).json({
+    error: error?.message || "Internal server error.",
+  });
 });
 
 // ------------------------------------------------
