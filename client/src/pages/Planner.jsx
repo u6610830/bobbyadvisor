@@ -822,7 +822,7 @@ function Planner({ studentId, curriculumYear = null }) {
                   title="Click to check the latest status from your advisor"
                 >
                   <RefreshCcw size={13} strokeWidth={2} className={approvalRefreshing ? "planner-approval-spin" : ""} />
-                  Status: {approval ? APPROVAL_LABELS[approval.status] || approval.status : "Not Submitted"}
+                  Status: {approval ? APPROVAL_LABELS[approval.status] || approval.status : "Pending"}
                 </button>
                 <button type="button" className="planner-schedule-btn" onClick={() => setShowCourseLeft(true)}>
                   Check course left

@@ -30,6 +30,79 @@ const client = new GoogleGenAI({
 // model name fails with a 404 "not found for API version v1beta" error,
 // which breaks the upload it's used in.
 const GEMINI_MODEL = "gemini-3.1-flash-lite";
+
+
+// Normalize the different error shapes returned by @google/genai into a
+// real HTTP status code. The SDK may expose the numeric code on `status`,
+// `code`, a nested response, or only inside the message text.
+function getGeminiHttpStatus(error) {
+  const candidates = [
+    error?.status,
+    error?.code,
+    error?.response?.status,
+    error?.error?.code,
+    error?.response?.data?.error?.code,
+  ];
+
+  for (const value of candidates) {
+    const numeric = Number(value);
+    if (Number.isInteger(numeric) && numeric >= 100 && numeric <= 599) {
+      return numeric;
+    }
+  }
+
+  const raw = String(error?.message || "");
+  if (/RESOURCE_EXHAUSTED|\b429\b/i.test(raw)) return 429;
+  if (/UNAVAILABLE|high demand|overloaded|\b503\b/i.test(raw)) return 503;
+  if (/PERMISSION_DENIED|API key|\b403\b/i.test(raw)) return 403;
+  if (/INVALID_ARGUMENT|\b400\b/i.test(raw)) return 400;
+  return 500;
+}
+
+function getGeminiRetryDelayMs(error, attempt) {
+  const details =
+    error?.errorDetails ||
+    error?.details ||
+    error?.error?.details ||
+    error?.response?.data?.error?.details ||
+    [];
+
+  const list = Array.isArray(details) ? details : [details];
+  for (const detail of list) {
+    const retryDelay = detail?.retryDelay;
+    if (typeof retryDelay === "string") {
+      const match = retryDelay.match(/^([0-9.]+)s$/i);
+      if (match) {
+        // Avoid keeping an HTTP request open for an excessive amount of time.
+        return Math.min(Math.ceil(Number(match[1]) * 1000), 8000);
+      }
+    }
+  }
+
+  // 1s -> 2s -> 4s, capped at 8s.
+  return Math.min(1000 * (2 ** attempt), 8000);
+}
+
+async function generateGeminiContent(request, maxRetries = 3) {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return await client.models.generateContent(request);
+    } catch (error) {
+      const status = getGeminiHttpStatus(error);
+      const retryable = status === 429 || status === 503;
+
+      if (!retryable || attempt >= maxRetries) {
+        throw error;
+      }
+
+      const delayMs = getGeminiRetryDelayMs(error, attempt);
+      console.warn(
+        `Gemini returned ${status}. Retrying request ${attempt + 1}/${maxRetries} in ${delayMs}ms...`
+      );
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+  }
+}
 const CLIENT_URL = String(process.env.CLIENT_URL || "http://localhost:5173").replace(/\/$/, "");
 
 // Only Assumption University student emails are accepted for registration:
@@ -588,7 +661,7 @@ app.post("/extract", upload.single("image"), async (req, res) => {
     const base64 = imageBuffer.toString("base64");
 
     // Send image to Gemini
-    const response = await client.models.generateContent({
+    const response = await generateGeminiContent({
       model: GEMINI_MODEL,
       config: {
         // Deterministic reading — grade transcription shouldn't vary
@@ -703,15 +776,17 @@ Unknown -->2/2024 CSX3002 OBJECT-ORIENTED CONCEPTS AND PROGRAMMING (3 Credits)
     });
 
   } catch (error) {
-    console.error(error);
+    console.error("POST /extract error:", error);
 
     // Delete image if something went wrong
     if (req.file && fs.existsSync(req.file.path)) {
       fs.unlinkSync(req.file.path);
     }
 
-    res.status(500).json({
-      error: error.message
+    const status = getGeminiHttpStatus(error);
+    res.status(status).json({
+      error: friendlyGeminiError(error),
+      geminiStatus: status,
     });
   }
 });
@@ -936,7 +1011,7 @@ app.post("/extract-timetable", upload.single("file"), async (req, res) => {
     const fileBuffer = fs.readFileSync(req.file.path);
     const base64 = fileBuffer.toString("base64");
 
-    const response = await client.models.generateContent({
+    const response = await generateGeminiContent({
       model: GEMINI_MODEL,
       config: {
         // Deterministic reading — this is a transcription task, not a
@@ -1173,14 +1248,16 @@ Return exactly this shape:
     res.json({ classes });
 
   } catch (error) {
-    console.error(error);
+    console.error("POST /extract-timetable error:", error);
 
     if (req.file && fs.existsSync(req.file.path)) {
       fs.unlinkSync(req.file.path);
     }
 
-    res.status(500).json({
-      error: error.message
+    const status = getGeminiHttpStatus(error);
+    res.status(status).json({
+      error: friendlyGeminiError(error),
+      geminiStatus: status,
     });
   }
 });
@@ -1487,7 +1564,7 @@ app.post("/extract-prerequisites", upload.single("file"), async (req, res) => {
     }
     const base64 = fileBuffer.toString("base64");
 
-    const response = await client.models.generateContent({
+    const response = await generateGeminiContent({
       model: GEMINI_MODEL,
       config: {
         // Deterministic reading — transcription, not creative writing.
@@ -1558,21 +1635,21 @@ Return exactly this shape:
 
     res.json({ rows });
   } catch (error) {
-    console.error("POST /extract-prerequisites error:", error);
     if (req.file?.path && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
 
-    const raw = error?.message || "";
-    let friendly = raw || "Failed to read the uploaded file.";
-    if (raw.includes("INVALID_ARGUMENT")) {
+    const raw = String(error?.message || "");
+    const status = getGeminiHttpStatus(error);
+    let friendly = friendlyGeminiError(error);
+
+    if (status === 400 && raw.includes("INVALID_ARGUMENT")) {
       friendly =
-        "Gemini could not read this file (INVALID_ARGUMENT) — usually caused by a corrupted file, a file that isn't actually an image/PDF, or a file that's too large. Try a different JPG/PNG image or PDF (recommended under ~10MB).";
-    } else if (raw.includes("RESOURCE_EXHAUSTED") || raw.includes("429")) {
-      friendly = "Too many requests to the Gemini API (rate limit) — please wait a moment and try again.";
-    } else if (raw.includes("API key") || raw.includes("PERMISSION_DENIED") || raw.includes("403")) {
-      friendly = "The GEMINI_API_KEY in server/.env is invalid or expired.";
+        "Gemini could not read this file (INVALID_ARGUMENT) — usually caused by a corrupted file, an unsupported/incorrect file, or a file that is too large. Try a different JPG/PNG image or PDF.";
     }
 
-    res.status(500).json({ error: friendly, rawError: raw });
+    res.status(status).json({
+      error: friendly,
+      geminiStatus: status,
+    });
   }
 });
 
@@ -2018,7 +2095,7 @@ app.put("/student-elective-group/:studentId", async (req, res) => {
 
 app.get("/test-gemini", async (req, res) => {
   try {
-    const response = await client.models.generateContent({
+    const response = await generateGeminiContent({
       model: GEMINI_MODEL,
       contents: "Say hello"
     });
@@ -2030,10 +2107,12 @@ app.get("/test-gemini", async (req, res) => {
 
   } catch (error) {
     console.error("Gemini test error:", error);
+    const status = getGeminiHttpStatus(error);
 
-    res.status(500).json({
+    res.status(status).json({
       success: false,
-      error: error.message
+      error: friendlyGeminiError(error),
+      geminiStatus: status,
     });
   }
 });
@@ -2043,13 +2122,49 @@ app.get("/test-gemini", async (req, res) => {
 // missing GEMINI_API_KEY, a rate limit, or a malformed request all read
 // as something a non-developer can act on.
 function friendlyGeminiError(error) {
-  const raw = error?.message || "";
-  if (raw.includes("RESOURCE_EXHAUSTED") || raw.includes("429")) {
-    return "Too many requests to the Gemini API (rate limit) — please wait a moment and try again.";
+  const raw = String(error?.message || "");
+  const status = getGeminiHttpStatus(error);
+
+  // Keep the original SDK error in the server log so quotaMetric, quotaId,
+  // RetryInfo, region failures, etc. are not hidden by the user-facing text.
+  console.error("========== GEMINI API ERROR ==========");
+  console.error("HTTP status:", status);
+  console.error("Message:", raw);
+  console.error(
+    "Error details:",
+    JSON.stringify(
+      error?.errorDetails ||
+        error?.details ||
+        error?.error?.details ||
+        error?.response?.data?.error?.details ||
+        null,
+      null,
+      2
+    )
+  );
+  console.error(
+    "Response:",
+    JSON.stringify(error?.response?.data || null, null, 2)
+  );
+  console.error("Full error:", error);
+  console.error("======================================");
+
+  if (status === 429) {
+    return "Gemini API quota/rate limit reached. The server retried automatically, but the limit is still active. Please try again in a moment.";
   }
-  if (raw.includes("API key") || raw.includes("PERMISSION_DENIED") || raw.includes("403")) {
-    return "The GEMINI_API_KEY in server/.env is invalid or expired.";
+
+  if (status === 503) {
+    return "Gemini is temporarily overloaded. The server retried automatically, but the service is still unavailable. Please try again shortly.";
   }
+
+  if (status === 403) {
+    return "The Gemini API key is invalid, restricted, expired, or does not have permission for this request.";
+  }
+
+  if (status === 400 && raw.includes("INVALID_ARGUMENT")) {
+    return "Gemini rejected the request as invalid. Check the uploaded file/request format and server log for details.";
+  }
+
   return raw || "Bobby couldn't respond right now. Please try again.";
 }
 
@@ -2325,7 +2440,7 @@ ${JSON.stringify(context)}
       { role: "user", parts: [{ text: message }] },
     ];
 
-    const response = await client.models.generateContent({
+    const response = await generateGeminiContent({
       model: GEMINI_MODEL,
       config: { temperature: 0.4 },
       contents,
@@ -2349,7 +2464,11 @@ ${JSON.stringify(context)}
     res.json({ reply });
   } catch (error) {
     console.error("POST /chat/bobby error:", error);
-    res.status(500).json({ error: friendlyGeminiError(error) });
+    const status = getGeminiHttpStatus(error);
+    res.status(status).json({
+      error: friendlyGeminiError(error),
+      geminiStatus: status,
+    });
   }
 });
 
@@ -2469,7 +2588,7 @@ CANDIDATE_COURSES:
 ${JSON.stringify(candidates)}
 `.trim();
 
-    const response = await client.models.generateContent({
+    const response = await generateGeminiContent({
       model: GEMINI_MODEL,
       config: { temperature: 0.5 },
       contents: [{ role: "user", parts: [{ text: prompt }] }],
@@ -2520,7 +2639,11 @@ ${JSON.stringify(candidates)}
     res.json({ recommendations, goals, careerInterests });
   } catch (error) {
     console.error("POST /course-recommendations error:", error);
-    res.status(500).json({ error: friendlyGeminiError(error) });
+    const status = getGeminiHttpStatus(error);
+    res.status(status).json({
+      error: friendlyGeminiError(error),
+      geminiStatus: status,
+    });
   }
 });
 
@@ -2591,7 +2714,7 @@ SELECTED_COURSES (${selectedCourses.length} total):
 ${JSON.stringify(selectedCourses)}
 `.trim();
 
-    const response = await client.models.generateContent({
+    const response = await generateGeminiContent({
       model: GEMINI_MODEL,
       config: { temperature: 0.4 },
       contents: [{ role: "user", parts: [{ text: prompt }] }],
@@ -4232,17 +4355,34 @@ app.put("/courses/:courseCode", async (req, res) => {
       course: data
     });
 
-  } catch (error) {
-    console.error(
-      "PUT /courses/:courseCode error:",
-      error
-    );
+} catch (error) {
+  console.error("========== PUT /courses ERROR ==========");
+  console.error("message:", error?.message);
+  console.error("status:", error?.status);
+  console.error("code:", error?.code);
 
-    res.status(500).json({
-      error: error.message
-    });
-  }
+  console.error(
+    "response data:",
+    JSON.stringify(error?.response?.data, null, 2)
+  );
+
+  console.error(
+    "error details:",
+    JSON.stringify(error?.errorDetails, null, 2)
+  );
+
+  console.error("full error:", error);
+  console.error("========================================");
+
+  res.status(error?.status || error?.response?.status || 500).json({
+    error:
+      error?.response?.data?.error?.message ||
+      error?.message ||
+      "Unknown server error",
+  });
+}
 });
+
 // ------------------------------------------------
 // STUDENTS
 // ------------------------------------------------
