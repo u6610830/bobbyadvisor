@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import axios from "axios";
-import { GraduationCap, CheckCircle2, Clock, Circle, RotateCcw, Plus, Pencil, Save, Trash2 } from "lucide-react";
+import * as XLSX from "xlsx-js-style";
+import { GraduationCap, CheckCircle2, Clock, Circle, RotateCcw, Plus, Pencil, Save, Trash2, Download } from "lucide-react";
 import { getCurriculumForStudent, getCurriculumGroups, syncCurriculaFromServer, subscribeCurricula } from "../utils/curriculum.js";
 import { evaluateCurriculumProgress } from "../utils/curriculumProgress.js";
 import { normalizeCourseCode } from "../utils/courseCode.js";
@@ -432,6 +433,93 @@ function StudentGraduationCheck({ studentId, curriculumYear = null, readOnly = f
       });
   };
 
+  // Which rows a block shows outside edit mode — the three full-list blocks
+  // (General Education / Core / Major) show every course; the elective
+  // blocks show only finished ones (Completed or Retake). See the render
+  // below for the full reasoning.
+  const isFullListBlock = (block) => !/elective/i.test(`${block.group || ""} ${block.label || ""}`);
+  const visibleRowsForBlock = (block, rows) =>
+    isFullListBlock(block)
+      ? rows
+      : rows.filter((r) => r.status === "completed" || r.status === "re-grade");
+
+  const blockStatusText = (block, rows) => {
+    const rowsCompletedCount = rows.filter((r) => r.status === "completed").length;
+    if (block.courses.length === 0) return `${electiveGroupCreditsEarned(rows)}/${block.creditsRequired ?? "—"} credits`;
+    if (block.mode === "all") return `${rowsCompletedCount}/${block.courses.length} completed`;
+    return `${rowsCompletedCount}/${block.chooseCount} chosen`;
+  };
+
+  // Download the same summary + per-group course tables shown on the page
+  // as an .xlsx file. Summary lines are "Label : value"; group headings and
+  // table headers are bold, and group headings get a light blue background.
+  const downloadExcel = () => {
+    const bold = { font: { bold: true } };
+    const heading = { font: { bold: true }, fill: { patternType: "solid", fgColor: { rgb: "BDD7EE" } } };
+    const aoa = [];
+    const boldRows = [];
+    const headingRows = [];
+    const pushRow = (row, isBold = false) => {
+      if (isBold) boldRows.push(aoa.length);
+      aoa.push(row);
+    };
+
+    pushRow(["Graduation Check"], true);
+    if (curriculum?.programName) pushRow([curriculum.programName]);
+    if (studentId) pushRow([`Student ID : ${studentId}`]);
+    pushRow([]);
+    pushRow([`Credits Earned : ${creditsEarned}`]);
+    pushRow([`Total Credits Required : ${totalRequired ?? "—"}`]);
+    pushRow([`Credits Left : ${creditsLeft ?? "—"}`]);
+    pushRow([`Requirement Groups Met : ${visibleBlocks.filter((b) => b.satisfied).length}/${visibleBlocks.length}`]);
+
+    visibleBlocks.forEach((block) => {
+      const rows = mergeRowsPreservingAcademicStatus(block, statusOverrideGroupKey(block));
+      const exportRows = visibleRowsForBlock(block, rows);
+      const headingText =
+        block.group && block.group.trim() !== block.label?.trim()
+          ? `${block.label} (${block.group})`
+          : block.label;
+
+      pushRow([]);
+      headingRows.push(aoa.length);
+      pushRow([headingText, "", "", "", blockStatusText(block, rows)], true);
+      if (exportRows.length === 0) {
+        pushRow([isFullListBlock(block) ? "No courses listed for this requirement yet." : "No completed courses yet."]);
+        return;
+      }
+      pushRow(["Course Code", "Course Name", "Credits", "Grade", "Status"], true);
+      exportRows.forEach((row) => {
+        pushRow([
+          row.code,
+          row.name || "—",
+          Number(row.credits) || row.credits || "",
+          findGradeForCourse(row.code),
+          (STATUS_META[row.status] || STATUS_META["not-taken"]).label,
+        ]);
+      });
+    });
+
+    const sheet = XLSX.utils.aoa_to_sheet(aoa);
+    boldRows.forEach((r) => {
+      aoa[r].forEach((_, c) => {
+        const cell = sheet[XLSX.utils.encode_cell({ r, c })];
+        if (cell) cell.s = bold;
+      });
+    });
+    headingRows.forEach((r) => {
+      aoa[r].forEach((_, c) => {
+        const cell = sheet[XLSX.utils.encode_cell({ r, c })];
+        if (cell) cell.s = heading;
+      });
+    });
+    sheet["!cols"] = [{ wch: 16 }, { wch: 45 }, { wch: 10 }, { wch: 10 }, { wch: 16 }];
+
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, sheet, "Graduation Check");
+    XLSX.writeFile(workbook, `graduation-check${studentId ? `-${studentId}` : ""}.xlsx`);
+  };
+
   const allSatisfied =
     visibleBlocks.length > 0 &&
     visibleBlocks.every((block) => {
@@ -461,6 +549,12 @@ function StudentGraduationCheck({ studentId, curriculumYear = null, readOnly = f
 
       {!loading && curriculum && (
         <>
+          <div className="gc-download-row">
+            <button type="button" className="gc-download-btn" onClick={downloadExcel}>
+              <Download size={14} strokeWidth={2} /> Download Excel
+            </button>
+          </div>
+
           <div className="gc-summary-cards">
             <div className="gc-summary-card">
               <span className="gc-summary-label">Credits Earned</span>

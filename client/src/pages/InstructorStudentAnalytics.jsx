@@ -6,6 +6,8 @@ import {
   RefreshCcw,
   GraduationCap,
   Send,
+  Check,
+  X,
 } from "lucide-react";
 
 import StudentGraduationCheck from "./StudentGraduationCheck.jsx";
@@ -15,6 +17,13 @@ import "./InstructorStudentAnalytics.css";
 
 const API_BASE =
   import.meta.env.VITE_API_BASE || (import.meta.env.PROD ? "https://api.bobbyadvisor.org" : "http://localhost:3001");
+
+// Status of the student's saved Planner Course list (planner_approvals).
+const APPROVAL_LABELS = {
+  pending: "Pending Approval",
+  approved: "Approved",
+  rejected: "Rejected",
+};
 
 // --------------------------------------------------
 // Grade points
@@ -132,6 +141,9 @@ const studentEmail =
 
   const [grades, setGrades] = useState([]);
   const [savedCourses, setSavedCourses] = useState([]);
+  const [planApproval, setPlanApproval] = useState(null); // planner_approvals row, or null
+  const [reviewingPlan, setReviewingPlan] = useState(false);
+  const [planReviewError, setPlanReviewError] = useState("");
 
   // course_code -> course_title, from Admin's All Courses catalog, so
   // Registered Courses below can show the course name, not just the code.
@@ -216,6 +228,7 @@ const studentEmail =
     if (!actualStudentId) {
       setGrades([]);
       setSavedCourses([]);
+      setPlanApproval(null);
       setLoadingGrades(false);
       setLoadingSavedCourses(false);
       setError("");
@@ -267,6 +280,8 @@ const studentEmail =
 
         setGrades(gradeData);
         setSavedCourses(registrationData);
+        setPlanApproval(registrationsResponse.data?.approval || null);
+        setPlanReviewError("");
       } catch (error) {
         if (cancelled) {
           return;
@@ -284,6 +299,7 @@ const studentEmail =
 
         setGrades([]);
         setSavedCourses([]);
+        setPlanApproval(null);
       } finally {
         if (!cancelled) {
           setLoadingGrades(false);
@@ -449,6 +465,28 @@ const studentEmail =
     }
   };
 
+  // Approve / Reject the student's saved Planner Course list. The student
+  // sees the result as the Status button next to Planner Course on Planner.
+  const handleReviewPlan = async (status) => {
+    if (!actualStudentId || !advisorId) return;
+    setReviewingPlan(true);
+    setPlanReviewError("");
+    try {
+      const { data } = await axios.patch(
+        `${API_BASE}/planner-approvals/${encodeURIComponent(actualStudentId)}`,
+        { advisorId, status }
+      );
+      setPlanApproval(data?.approval || null);
+    } catch (error) {
+      console.error("Failed to review planner course:", error);
+      setPlanReviewError(
+        error.response?.data?.error || "Could not update the plan status. Please try again."
+      );
+    } finally {
+      setReviewingPlan(false);
+    }
+  };
+
   const handleRefresh = async () => {
     if (!actualStudentId) {
       return;
@@ -486,6 +524,7 @@ const studentEmail =
         registrationsResponse.data?.registrations ||
           []
       );
+      setPlanApproval(registrationsResponse.data?.approval || null);
     } catch (error) {
       console.error(
         "Failed to refresh student data:",
@@ -795,9 +834,44 @@ const studentEmail =
       --------------------------------------------- */}
 
       <div className="analytics-card">
-        <h3>
-          Registered Courses
-        </h3>
+        <div className="analytics-plan-head">
+          <h3>
+            Planned Course
+          </h3>
+
+          {!loadingSavedCourses && savedCourses.length > 0 && (
+            <div className="analytics-plan-actions">
+              <span
+                className={`analytics-plan-status analytics-plan-${planApproval?.status || "none"}`}
+              >
+                Status:{" "}
+                {planApproval
+                  ? APPROVAL_LABELS[planApproval.status] || planApproval.status
+                  : "Not Submitted"}
+              </span>
+              <button
+                type="button"
+                className="analytics-plan-btn analytics-plan-approve"
+                onClick={() => handleReviewPlan("approved")}
+                disabled={reviewingPlan || planApproval?.status === "approved"}
+              >
+                <Check size={14} strokeWidth={2.5} /> Approve
+              </button>
+              <button
+                type="button"
+                className="analytics-plan-btn analytics-plan-reject"
+                onClick={() => handleReviewPlan("rejected")}
+                disabled={reviewingPlan || planApproval?.status === "rejected"}
+              >
+                <X size={14} strokeWidth={2.5} /> Reject
+              </button>
+            </div>
+          )}
+        </div>
+
+        {planReviewError && (
+          <p className="analytics-plan-error">{planReviewError}</p>
+        )}
 
         {loadingSavedCourses && (
           <p>Loading...</p>

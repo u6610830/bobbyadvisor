@@ -122,6 +122,86 @@
   color: var(--text-h);
 }
 
+.analytics-plan-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.analytics-plan-head h3 {
+  margin: 0;
+}
+
+.analytics-plan-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.analytics-plan-status {
+  border-radius: 999px;
+  padding: 5px 12px;
+  font-size: 12.5px;
+  font-weight: 600;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+}
+
+.analytics-plan-pending {
+  border-color: #d97706;
+  background: rgba(217, 119, 6, 0.1);
+  color: #b45309;
+}
+
+.analytics-plan-approved {
+  border-color: #16a34a;
+  background: rgba(22, 163, 74, 0.1);
+  color: #15803d;
+}
+
+.analytics-plan-rejected {
+  border-color: var(--danger, #DC2626);
+  background: rgba(220, 38, 38, 0.1);
+  color: var(--danger, #DC2626);
+}
+
+.analytics-plan-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 8px;
+  padding: 6px 12px;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  border: none;
+  color: #fff;
+}
+
+.analytics-plan-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.analytics-plan-approve {
+  background: #16a34a;
+}
+
+.analytics-plan-reject {
+  background: var(--danger, #DC2626);
+}
+
+.analytics-plan-error {
+  margin: 0 0 10px;
+  font-size: 13px;
+  color: var(--danger, #DC2626);
+}
+
 .analytics-empty {
   background: var(--card);
   border: 1px solid var(--border);

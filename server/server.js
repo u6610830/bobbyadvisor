@@ -6,7 +6,7 @@ import fs from "fs";
 import { GoogleGenAI } from "@google/genai";
 import { createClient } from "@supabase/supabase-js";
 import supabase from "./supabase.js";
-import bcrypt from "bcrypt";
+import bcrypt from "bcryptjs";
 dotenv.config();
 
 const app = express();
@@ -1379,6 +1379,8 @@ const ADVISOR_MESSAGES_TABLE = "advisor_messages";
 const BOBBY_MESSAGES_TABLE = "bobby_chat_messages";
 const COURSES_TABLE = "courses";
 const ADVISOR_RECOMMENDATIONS_TABLE = "advisor_course_recommendation";
+const PLANNER_APPROVALS_TABLE = "planner_approvals";
+const PLANNER_APPROVAL_STATUSES = ["approved", "rejected"];
 const PREREQ_GROUP_COLUMNS = { g1: "g1_text", g2: "g2_text", g3: "g3_text" };
 
 // Pulls course codes like "CSX3002" or "ITX2007" out of free-form
@@ -2711,20 +2713,139 @@ app.get("/registrations", async (req, res) => {
   }
 });
 
-// Student/advisor: saved registrations for one student.
+// Planner Course approval: one row per student in planner_approvals (see
+// server/supabase_planner_approvals.sql). Saving the plan resets it to
+// "pending"; the student's advisor then approves or rejects it. Lookups are
+// best-effort so a missing table never breaks loading or saving the plan.
+async function getPlannerApproval(studentId) {
+  const { data, error } = await supabase
+    .from(PLANNER_APPROVALS_TABLE)
+    .select("*")
+    .ilike("student_id", String(studentId || "").trim())
+    .maybeSingle();
+  if (error) {
+    console.warn("Could not load planner approval:", error.message);
+    return null;
+  }
+  return data || null;
+}
+
+async function resetPlannerApproval(studentId, hasCourses) {
+  const studentIdClean = String(studentId || "").trim().toUpperCase();
+  const { error: deleteError } = await supabase
+    .from(PLANNER_APPROVALS_TABLE)
+    .delete()
+    .ilike("student_id", studentIdClean);
+  if (deleteError) {
+    console.warn("Could not reset planner approval:", deleteError.message);
+    return null;
+  }
+  if (!hasCourses) return null;
+
+  const { data, error } = await supabase
+    .from(PLANNER_APPROVALS_TABLE)
+    .insert({
+      student_id: studentIdClean,
+      status: "pending",
+      submitted_at: new Date().toISOString(),
+    })
+    .select()
+    .single();
+  if (error) {
+    console.warn("Could not create planner approval:", error.message);
+    return null;
+  }
+  return data;
+}
+
+// Student/advisor: saved registrations for one student, plus the plan's
+// approval status (null when the student hasn't saved a plan yet).
 app.get("/registrations/:studentId", async (req, res) => {
   try {
-    const { data, error } = await supabase
-      .from(REGISTRATIONS_TABLE)
-      .select("*")
-      .ilike("student_id", req.params.studentId)
-      .order("course_code", { ascending: true });
+    const [{ data, error }, approval] = await Promise.all([
+      supabase
+        .from(REGISTRATIONS_TABLE)
+        .select("*")
+        .ilike("student_id", req.params.studentId)
+        .order("course_code", { ascending: true }),
+      getPlannerApproval(req.params.studentId),
+    ]);
 
     if (error) return res.status(500).json({ error: error.message });
 
-    res.json({ registrations: data || [] });
+    // A plan saved before approvals existed has no row yet — it still
+    // waits on the advisor, so report it as pending.
+    const effectiveApproval =
+      approval || ((data || []).length > 0 ? { status: "pending" } : null);
+
+    res.json({ registrations: data || [], approval: effectiveApproval });
   } catch (error) {
     console.error("GET /registrations/:studentId error:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Advisor: approve or reject one of their own students' saved plan.
+app.patch("/planner-approvals/:studentId", async (req, res) => {
+  try {
+    const studentIdClean = String(req.params.studentId || "").trim().toUpperCase();
+    const advisorIdClean = String(req.body.advisorId || "").trim().toUpperCase();
+    const status = String(req.body.status || "").trim().toLowerCase();
+
+    if (!advisorIdClean) return res.status(400).json({ error: "advisorId is required." });
+    if (!PLANNER_APPROVAL_STATUSES.includes(status)) {
+      return res.status(400).json({ error: "status must be approved or rejected." });
+    }
+
+    const { data: student, error: studentError } = await supabase
+      .from("students")
+      .select("student_id, advisor_id")
+      .ilike("student_id", studentIdClean)
+      .maybeSingle();
+
+    if (studentError) return res.status(500).json({ error: studentError.message });
+    if (!student) return res.status(404).json({ error: "Student not found." });
+    if (String(student.advisor_id || "").trim().toUpperCase() !== advisorIdClean) {
+      return res.status(403).json({ error: "You can only review plans of your assigned students." });
+    }
+
+    const review = {
+      status,
+      reviewed_by: advisorIdClean,
+      reviewed_at: new Date().toISOString(),
+    };
+
+    const { data, error } = await supabase
+      .from(PLANNER_APPROVALS_TABLE)
+      .update(review)
+      .ilike("student_id", studentIdClean)
+      .select()
+      .maybeSingle();
+
+    if (error) return res.status(500).json({ error: error.message });
+    if (data) return res.json({ approval: data });
+
+    // No approval row yet — e.g. the plan was saved before this table
+    // existed. Create one as long as the student really has a saved plan.
+    const { count, error: countError } = await supabase
+      .from(REGISTRATIONS_TABLE)
+      .select("student_id", { count: "exact", head: true })
+      .ilike("student_id", studentIdClean);
+
+    if (countError) return res.status(500).json({ error: countError.message });
+    if (!count) return res.status(404).json({ error: "This student hasn't saved a plan yet." });
+
+    const { data: created, error: insertError } = await supabase
+      .from(PLANNER_APPROVALS_TABLE)
+      .insert({ student_id: studentIdClean, ...review })
+      .select()
+      .single();
+
+    if (insertError) return res.status(500).json({ error: insertError.message });
+
+    res.json({ approval: created });
+  } catch (error) {
+    console.error("PATCH /planner-approvals/:studentId error:", error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -3029,7 +3150,10 @@ app.post("/registrations", async (req, res) => {
       .eq("student_id", studentId);
     if (deleteError) return res.status(500).json({ error: deleteError.message });
 
-    if (courseList.length === 0) return res.json({ registrations: [] });
+    if (courseList.length === 0) {
+      await resetPlannerApproval(studentId, false);
+      return res.json({ registrations: [], approval: null });
+    }
 
     const savedAt = new Date().toISOString();
     const rows = courseList.map((course) => ({
@@ -3045,7 +3169,10 @@ app.post("/registrations", async (req, res) => {
 
     if (error) return res.status(500).json({ error: error.message });
 
-    res.status(201).json({ registrations: data || [] });
+    // A newly saved plan always goes back to the advisor for review.
+    const approval = await resetPlannerApproval(studentId, true);
+
+    res.status(201).json({ registrations: data || [], approval });
   } catch (error) {
     console.error("POST /registrations error:", error);
     res.status(500).json({ error: error.message });
@@ -3409,7 +3536,7 @@ app.get("/advisor-messages/unread", async (req, res) => {
 
     const { count, error } = await supabase
       .from(ADVISOR_MESSAGES_TABLE)
-      .select("id", { count: "exact", head: true })
+      .select("student_id", { count: "exact", head: true })
       .eq("student_id", studentId)
       .eq("advisor_id", advisorId)
       .eq("sender_role", senderRole)

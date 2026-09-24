@@ -35,6 +35,31 @@
   color: var(--text-muted);
 }
 
+.gc-download-row {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: -4px;
+}
+
+.gc-download-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 8px;
+  padding: 6px 12px;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-h);
+}
+
+.gc-download-btn:hover {
+  background: var(--accent-bg, rgba(0, 0, 0, 0.06));
+}
+
 .gc-summary-cards {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));

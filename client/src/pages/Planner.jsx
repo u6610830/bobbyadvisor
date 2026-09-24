@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import axios from "axios";
-import { X, AlertTriangle, Save, Clock } from "lucide-react";
+import { X, AlertTriangle, Save, Clock, RefreshCcw } from "lucide-react";
 import EditableList from "../components/EditableList.jsx";
 import { loadState } from "../utils/storage.js";
 import {
@@ -27,6 +27,14 @@ import "./Planner.css";
 
 const API_BASE = import.meta.env.VITE_API_BASE || (import.meta.env.PROD ? "https://api.bobbyadvisor.org" : "http://localhost:3001");
 const PREREQ_GROUP_COLUMN = { g1: "g1_text", g2: "g2_text", g3: "g3_text" };
+
+// Advisor's review of the saved Planner Course list (see /planner-approvals
+// on the server). null = the student hasn't saved a plan yet.
+const APPROVAL_LABELS = {
+  pending: "Pending Approval",
+  approved: "Approved",
+  rejected: "Rejected",
+};
 
 // Same storage key the Admin > Course Timetable page caches to locally —
 // used as a fallback if the database isn't reachable.
@@ -179,6 +187,8 @@ function Planner({ studentId, curriculumYear = null }) {
   const [blockedNotice, setBlockedNotice] = useState(null); // { code, reason } | null
   const [conflictNotice, setConflictNotice] = useState(null); // { newLabel, conflictingLabel } | null
   const [saveStatus, setSaveStatus] = useState("idle"); // idle | saving | saved | error
+  const [approval, setApproval] = useState(null); // planner_approvals row, or null
+  const [approvalRefreshing, setApprovalRefreshing] = useState(false);
   const [showSchedule, setShowSchedule] = useState(false);
   const [courseGroupByCode, setCourseGroupByCode] = useState({}); // course_code -> "Course" group, from Admin's All Courses
   // AI-judged reading of the current Selected Course list — see
@@ -238,6 +248,7 @@ function Planner({ studentId, curriculumYear = null }) {
   useEffect(() => {
     if (!studentId) {
       setCourses([]);
+      setApproval(null);
       return;
     }
 
@@ -268,6 +279,7 @@ function Planner({ studentId, curriculumYear = null }) {
           .filter(Boolean);
 
         setCourses(savedCourses);
+        setApproval(res.data?.approval || null);
       })
       .catch((err) => {
         console.warn(
@@ -276,6 +288,7 @@ function Planner({ studentId, curriculumYear = null }) {
         );
 
         setCourses([]);
+        setApproval(null);
       });
   }, [studentId]);
 
@@ -649,7 +662,8 @@ function Planner({ studentId, curriculumYear = null }) {
     if (!studentId) return;
     setSaveStatus("saving");
     try {
-      await axios.post(`${API_BASE}/registrations`, { studentId, courses });
+      const res = await axios.post(`${API_BASE}/registrations`, { studentId, courses });
+      setApproval(res.data?.approval || null);
       setSaveStatus("saved");
       setTimeout(() => setSaveStatus("idle"), 2000);
     } catch (err) {
@@ -662,6 +676,20 @@ function Planner({ studentId, curriculumYear = null }) {
         });
       }
       setSaveStatus("error");
+    }
+  };
+
+  // Status button: re-check the advisor's decision without reloading the page.
+  const refreshApproval = async () => {
+    if (!studentId) return;
+    setApprovalRefreshing(true);
+    try {
+      const res = await axios.get(`${API_BASE}/registrations/${encodeURIComponent(studentId)}`);
+      setApproval(res.data?.approval || null);
+    } catch (err) {
+      console.warn("Could not refresh plan status:", err.message);
+    } finally {
+      setApprovalRefreshing(false);
     }
   };
 
@@ -784,8 +812,18 @@ function Planner({ studentId, curriculumYear = null }) {
 
           <div className="planner-card">
             <div className="planner-card-head">
-              <h3>Selected Course :</h3>
+              <h3>Planner Course :</h3>
               <div className="planner-card-head-actions">
+                <button
+                  type="button"
+                  className={`planner-approval-status planner-approval-${approval?.status || "none"}`}
+                  onClick={refreshApproval}
+                  disabled={approvalRefreshing || !studentId}
+                  title="Click to check the latest status from your advisor"
+                >
+                  <RefreshCcw size={13} strokeWidth={2} className={approvalRefreshing ? "planner-approval-spin" : ""} />
+                  Status: {approval ? APPROVAL_LABELS[approval.status] || approval.status : "Not Submitted"}
+                </button>
                 <button type="button" className="planner-schedule-btn" onClick={() => setShowCourseLeft(true)}>
                   Check course left
                 </button>
