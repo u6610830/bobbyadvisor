@@ -5,7 +5,7 @@
 
   "main": "server.js",
 
-  "compatibility_date": "2026-09-25",
+  "compatibility_date": "2026-09-17",
 
   "keep_vars": true,
 
