@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { LayoutDashboard, CalendarDays, GraduationCap, TableProperties, FileSpreadsheet, ListChecks, ClipboardList, BookOpen, TrendingUp, Users, Settings } from "lucide-react";
 import RoleLayout from "../layout/RoleLayout.jsx";
-import AdminStudentsSummary from "./AdminStudentsSummary.jsx";
+import AdminDashboard from "./AdminDashboard.jsx";
 import AdminCourseTimetable from "./AdminCourseTimetable.jsx";
 import AdminGraduationCheck from "./AdminGraduationCheck.jsx";
 import AdminUploadData from "./AdminUploadData.jsx";
@@ -30,20 +30,28 @@ const ADMIN_NAV_ITEMS = [
 
 function AdminPortal({ userId, onSignOut }) {
   const [activePage, setActivePage] = useState("dashboard");
+  // Student to open straight away on Graduation Check when coming from a
+  // row on the Dashboard; cleared when navigating from the sidebar.
+  const [graduationStudentId, setGraduationStudentId] = useState(null);
   const admin = getAdminById(userId);
+
+  const navigate = (page, extra) => {
+    setGraduationStudentId(page === "graduation-check" ? extra?.studentId || null : null);
+    setActivePage(page);
+  };
 
   const renderContent = () => {
     if (activePage === "manage-users") return <AdminManageUsers />;
     if (activePage === "settings") return <AccountSettings userId={userId} role="admin" displayName={admin?.name} />;
     if (activePage === "timetable") return <AdminCourseTimetable />;
-    if (activePage === "graduation-check") return <AdminGraduationCheck />;
+    if (activePage === "graduation-check") return <AdminGraduationCheck key={graduationStudentId || "search"} initialStudentId={graduationStudentId} />;
     if (activePage === "upload-data") return <AdminUploadData />;
     if (activePage === "excel-check") return <AdminExcelCheck />;
     if (activePage === "pre-require") return <AdminPreRequire />;
     if (activePage === "registrations") return <AdminCourseRegistrations />;
     if (activePage === "courses") return <AdminCourses />;
     if (activePage === "high-demand") return <RequestedCourses />;
-    return <AdminStudentsSummary />;
+    return <AdminDashboard onNavigate={navigate} />;
   };
 
   return (
@@ -54,7 +62,7 @@ function AdminPortal({ userId, onSignOut }) {
       userName={admin?.name}
       navItems={ADMIN_NAV_ITEMS}
       activePage={activePage}
-      onNavigate={setActivePage}
+      onNavigate={navigate}
       onSignOut={onSignOut}
     >
       {renderContent()}
@@ -63,5 +71,4 @@ function AdminPortal({ userId, onSignOut }) {
 }
 
 export default AdminPortal;
-
 

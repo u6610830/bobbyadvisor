@@ -2647,6 +2647,644 @@ ${JSON.stringify(candidates)}
 });
 
 // ------------------------------------------------
+// COURSE PLAN GENERATOR: builds one semester's worth of courses for the
+// student (default 18 credits, student can change it), in this priority:
+//
+//   1. Core courses and graduation-required courses ("all required"
+//      curriculum blocks) — these fill most or all of the plan, lowest
+//      course number first, so requirements get finished early.
+//   2. Around 2-3 "gateway" courses — courses that are a prerequisite
+//      for other courses the student still needs — lowest number first.
+//   3. Everything else by the student's Goals & Career Interests
+//      (Gemini ranks them; falls back to course-number order if Gemini
+//      is unavailable or the student hasn't set any goals).
+//
+// The student can switch categories on/off (core / major elective /
+// general education / free elective) and pin how many courses each
+// category should contribute. Courses whose prerequisites aren't passed
+// are never suggested. When a timetable has been uploaded, ONLY courses
+// on it are suggested, each with one section that doesn't clash with the
+// student's existing registrations or the other planned courses. With no
+// timetable, any eligible course can be suggested (it'll be added as a
+// requested course instead of a registration).
+// ------------------------------------------------
+
+const PLAN_CATEGORIES = ["core", "major_elective", "gen_ed", "free_elective"];
+const PLAN_CATEGORY_LABELS = {
+  core: "Core / Major Required",
+  major_elective: "Major Elective",
+  gen_ed: "General Education",
+  free_elective: "Free Elective",
+};
+const MAX_GATEWAY_COURSES = 3;
+
+// Maps a curriculum block / course group name onto one of the plan
+// categories above. Group names are Admin-defined free text (e.g.
+// "A. General Education Courses", "Major Elective Courses (Group 1A) - ...",
+// "Core Courses", "Major Courses", "C. Free Elective Course").
+function classifyPlanCategory(groupText, isRequiredBlock = false) {
+  const text = String(groupText || "").toLowerCase();
+  if (text.includes("general education") || text.includes("gen ed") || text.includes("gened")) return "gen_ed";
+  if (text.includes("free elective")) return "free_elective";
+  if (text.includes("elective")) return "major_elective";
+  if (text.includes("core") || text.includes("major")) return "core";
+  return isRequiredBlock ? "core" : "free_elective";
+}
+
+function courseNumberOf(code) {
+  const match = normalizeCourseCode(code).match(/\d+$/);
+  return match ? Number(match[0]) : Number.MAX_SAFE_INTEGER;
+}
+
+function timeToMinutes(hhmm) {
+  const [h, m] = String(hhmm || "00:00").split(":").map(Number);
+  return (h || 0) * 60 + (m || 0);
+}
+
+function meetingsOverlap(a, b) {
+  return (
+    a.day === b.day &&
+    timeToMinutes(a.start) < timeToMinutes(b.end) &&
+    timeToMinutes(a.end) > timeToMinutes(b.start)
+  );
+}
+
+app.post("/course-plan", async (req, res) => {
+  try {
+    const studentId = String(req.body.student_id || "").trim().toUpperCase();
+    if (!studentId) return res.status(400).json({ error: "student_id is required." });
+
+    // Advisor generating a plan for one of their students.
+    if (req.body.advisor_id) {
+      const denied = await checkAdvisorOwnsStudent(req.body.advisor_id, studentId);
+      if (denied) return res.status(denied.status).json({ error: denied.error });
+    }
+
+    const targetCredits = Math.min(Math.max(Number(req.body.target_credits) || 18, 1), 40);
+
+    // { core: { enabled: true, count: null }, major_elective: {...}, ... }
+    // count = null/"" means "let the generator decide".
+    const rawCategories = req.body.categories || {};
+    const categorySettings = {};
+    PLAN_CATEGORIES.forEach((key) => {
+      const raw = rawCategories[key] || {};
+      const enabled = raw.enabled === undefined ? key !== "free_elective" : Boolean(raw.enabled);
+      const countNum = Number(raw.count);
+      const count = raw.count === null || raw.count === "" || raw.count === undefined || !Number.isFinite(countNum)
+        ? null
+        : Math.max(0, Math.floor(countNum));
+      categorySettings[key] = { enabled: enabled && count !== 0, count };
+    });
+
+    if (!PLAN_CATEGORIES.some((key) => categorySettings[key].enabled)) {
+      return res.status(400).json({ error: "Pick at least one course category to include in the plan." });
+    }
+
+    const [
+      { data: student, error: studentError },
+      { data: grades },
+      { data: registrations },
+      { data: requestedCourses },
+      { data: curriculumYears },
+      { data: curriculumGroups },
+      { data: courseCatalog },
+      { data: timetableEntries },
+      { data: prereqRows },
+    ] = await Promise.all([
+      supabase
+        .from("students")
+        .select("student_id, name, curriculum_year, elective_group, goals, career_interests")
+        .ilike("student_id", studentId)
+        .maybeSingle(),
+      supabase.from("grades").select("course_code, grade, credits").ilike("student_id", studentId),
+      supabase.from(REGISTRATIONS_TABLE).select("course_code, section").ilike("student_id", studentId),
+      supabase.from(REQUESTED_COURSES_TABLE).select("course_code").ilike("student_id", studentId),
+      supabase.from(CURRICULA_TABLE).select("*"),
+      supabase.from(CURRICULUM_GROUPS_TABLE).select("*").order("sort_order", { ascending: true }),
+      supabase.from(COURSES_TABLE).select("course_code, course_title, credits, description, course_group"),
+      supabase.from(TIMETABLE_TABLE).select("code, name, sec, day, start_time, end_time"),
+      supabase.from(PREREQ_TABLE).select("*"),
+    ]);
+
+    if (studentError) return res.status(500).json({ error: studentError.message });
+    if (!student) return res.status(404).json({ error: "Student ID not recognized." });
+
+    const goals = Array.isArray(student.goals) ? student.goals : [];
+    const careerInterests = Array.isArray(student.career_interests) ? student.career_interests : [];
+    const warnings = [];
+
+    // ---- Curriculum year (same fallback as Bobby chat) ----
+    const availableYears = (curriculumYears || []).map((row) => String(row.year).trim());
+    let curriculumYear = String(student.curriculum_year || "").trim();
+    if (!availableYears.includes(curriculumYear)) {
+      curriculumYear = deriveCurriculumYearFromId(student.student_id, availableYears) || curriculumYear;
+    }
+    const groupRows = (curriculumGroups || [])
+      .filter((row) => String(row.curriculum_year).trim() === curriculumYear)
+      .filter((row) => !row.is_choose_one_group || (student.elective_group && row.label === student.elective_group));
+
+    // ---- What the student has passed / already has planned ----
+    const NON_PASSING_GRADES = new Set(["F", "W", "WF", "I", ""]);
+    const passedCredits = new Map();
+    (grades || []).forEach((g) => {
+      if (NON_PASSING_GRADES.has(String(g.grade || "").trim().toUpperCase())) return;
+      const code = normalizeCourseCode(g.course_code);
+      if (!code) return;
+      passedCredits.set(code, Math.max(passedCredits.get(code) || 0, Number(g.credits) || 0));
+    });
+    const passedCodes = new Set(passedCredits.keys());
+
+    const registeredCodes = new Set((registrations || []).map((r) => normalizeCourseCode(r.course_code)).filter(Boolean));
+    const requestedCodes = new Set((requestedCourses || []).map((r) => normalizeCourseCode(r.course_code)).filter(Boolean));
+    const excluded = new Set([...passedCodes, ...registeredCodes, ...requestedCodes]);
+
+    const catalogByCode = new Map();
+    (courseCatalog || []).forEach((c) => {
+      const code = normalizeCourseCode(c.course_code);
+      if (code && !catalogByCode.has(code)) catalogByCode.set(code, c);
+    });
+
+    // ---- Timetable: sections grouped by course, each with all its meetings ----
+    const sectionsByCode = new Map();
+    (timetableEntries || []).forEach((entry) => {
+      const code = normalizeCourseCode(entry.code);
+      if (!code) return;
+      const secLabel = String(entry.sec || "1").trim() || "1";
+      if (!sectionsByCode.has(code)) sectionsByCode.set(code, new Map());
+      const sections = sectionsByCode.get(code);
+      if (!sections.has(secLabel)) sections.set(secLabel, { section: secLabel, name: entry.name || "", meetings: [] });
+      sections.get(secLabel).meetings.push({
+        day: DAY_NAMES.indexOf(entry.day),
+        start: String(entry.start_time || "").slice(0, 5),
+        end: String(entry.end_time || "").slice(0, 5),
+      });
+    });
+    const hasTimetable = sectionsByCode.size > 0;
+
+    // Meetings the student is already committed to (existing registrations).
+    const busyMeetings = [];
+    (registrations || []).forEach((r) => {
+      const code = normalizeCourseCode(r.course_code);
+      const sec = sectionsByCode.get(code)?.get(String(r.section || "1").trim() || "1");
+      if (sec) busyMeetings.push(...sec.meetings.map((m) => ({ ...m, code })));
+    });
+
+    const existingCredits = [...registeredCodes].reduce(
+      (sum, code) => sum + (Number(catalogByCode.get(code)?.credits) || 3),
+      0
+    );
+
+    // ---- Prerequisites: eligibility + how many courses each one unlocks ----
+    const prereqColumn = PREREQ_GROUP_COLUMNS[getPrereqGroupForStudent(studentId)];
+    const prereqByCode = new Map();
+    const unlocksByCode = new Map(); // prereq code -> Set of course codes it opens up
+    (prereqRows || []).forEach((row) => {
+      const rowCode = normalizeCourseCode(row.course_code);
+      if (!rowCode || !prereqColumn) return;
+      const required = extractCourseCodes(row[prereqColumn]).filter((c) => c !== rowCode);
+      prereqByCode.set(rowCode, required);
+      if (passedCodes.has(rowCode)) return;
+      required.forEach((req) => {
+        if (!unlocksByCode.has(req)) unlocksByCode.set(req, new Set());
+        unlocksByCode.get(req).add(rowCode);
+      });
+    });
+    const missingPrereqs = (code) => (prereqByCode.get(code) || []).filter((c) => !passedCodes.has(c));
+
+    // ---- Candidate pool, built from the student's own curriculum blocks ----
+    const candidates = new Map();
+    const addCandidate = (rawCode, info) => {
+      const code = normalizeCourseCode(rawCode);
+      if (!code || excluded.has(code)) return;
+      const existing = candidates.get(code);
+      // A course listed in several blocks keeps its "required" version.
+      if (existing && (existing.required || !info.required)) return;
+      const catalog = catalogByCode.get(code);
+      candidates.set(code, {
+        code,
+        title: catalog?.course_title || info.title || "",
+        credits: Number(catalog?.credits) || Number(info.credits) || 3,
+        description: catalog?.description ? String(catalog.description).slice(0, 300) : "",
+        category: info.category,
+        blockLabel: info.blockLabel,
+        required: info.required,
+      });
+    };
+
+    groupRows.forEach((row) => {
+      const block = groupRowToBlock(row);
+      const rules = block.courses || [];
+      const required = block.mode === "all";
+      const category = classifyPlanCategory(block.group || block.label, required);
+      const blockLabel = block.label || block.group || PLAN_CATEGORY_LABELS[category];
+
+      // Skip blocks the student has already finished.
+      const earned = [...passedCodes]
+        .filter((code) => rules.some((rule) => courseMatchesRule(code, rule.code)))
+        .reduce((sum, code) => sum + (passedCredits.get(code) || 0), 0);
+      const creditsRequired = Number(block.creditsRequired) || 0;
+      const blockDone = required
+        ? rules.every((rule) => !normalizeCourseCode(rule.code) || [...passedCodes].some((c) => courseMatchesRule(c, rule.code)))
+        : creditsRequired > 0 && earned >= creditsRequired;
+      if (blockDone) return;
+
+      if (rules.length === 0) {
+        // Open block (e.g. free elective): any catalog course of that group.
+        (courseCatalog || []).forEach((c) => {
+          if (classifyPlanCategory(c.course_group) === category || category === "free_elective") {
+            addCandidate(c.course_code, { category, blockLabel, required: false, title: c.course_title, credits: c.credits });
+          }
+        });
+        return;
+      }
+
+      rules.forEach((rule) => {
+        if (normalizeCourseCode(rule.code)) {
+          addCandidate(rule.code, { category, blockLabel, required, title: rule.name, credits: rule.credits });
+        } else {
+          // Range rule like "CSX4280-4299": expand against the catalog.
+          (courseCatalog || []).forEach((c) => {
+            if (courseMatchesRule(c.course_code, rule.code)) {
+              addCandidate(c.course_code, { category, blockLabel, required: false, title: c.course_title, credits: c.credits });
+            }
+          });
+        }
+      });
+    });
+
+    // No curriculum uploaded for this student — fall back to the catalog.
+    if (groupRows.length === 0) {
+      warnings.push("No curriculum found for your year, so courses were grouped by their catalog group instead.");
+      (courseCatalog || []).forEach((c) => {
+        const category = classifyPlanCategory(c.course_group);
+        addCandidate(c.course_code, {
+          category,
+          blockLabel: c.course_group || PLAN_CATEGORY_LABELS[category],
+          required: category === "core",
+          title: c.course_title,
+          credits: c.credits,
+        });
+      });
+    }
+
+    // ---- Filter: category on, prerequisites met, on the timetable (if any) ----
+    const eligible = [...candidates.values()]
+      .filter((c) => categorySettings[c.category]?.enabled)
+      .filter((c) => missingPrereqs(c.code).length === 0)
+      .filter((c) => !hasTimetable || sectionsByCode.has(c.code))
+      .map((c) => ({
+        ...c,
+        number: courseNumberOf(c.code),
+        unlocks: [...(unlocksByCode.get(c.code) || [])].sort(),
+      }));
+
+    // ---- Interest ranking (Gemini) — only affects stage 3 ordering ----
+    const interestRank = new Map(); // code -> { rank, reason }
+    if ((goals.length > 0 || careerInterests.length > 0) && eligible.length > 0) {
+      try {
+        const prompt = `
+Rank university courses by how well they fit one student's goals and career interests.
+
+Rules:
+- Return ONLY valid JSON, no markdown fences: {"ranked": [{"course_code": "...", "reason": "..."}]}
+- Include only courses from CANDIDATE_COURSES that genuinely connect to the goals/career interests, best fit first. Copy "code" exactly. Never invent a course code.
+- "reason" is one short sentence explaining the fit, referencing the student's own goals/interests.
+
+STUDENT GOALS: ${JSON.stringify(goals)}
+STUDENT CAREER INTERESTS: ${JSON.stringify(careerInterests)}
+
+CANDIDATE_COURSES:
+${JSON.stringify(eligible.slice(0, 150).map((c) => ({ code: c.code, title: c.title, group: c.blockLabel, description: c.description })))}
+`.trim();
+        const response = await generateGeminiContent({
+          model: GEMINI_MODEL,
+          config: { temperature: 0.3 },
+          contents: [{ role: "user", parts: [{ text: prompt }] }],
+        });
+        const cleaned = (response.text || "").replace(/```json/gi, "").replace(/```/g, "").trim();
+        const parsed = JSON.parse(cleaned);
+        (Array.isArray(parsed.ranked) ? parsed.ranked : []).forEach((r, index) => {
+          const code = normalizeCourseCode(r.course_code);
+          if (code && !interestRank.has(code)) {
+            interestRank.set(code, { rank: index, reason: String(r.reason || "").trim() });
+          }
+        });
+      } catch (err) {
+        console.error("Course plan interest ranking failed:", err.message);
+        warnings.push("Couldn't rank courses by your interests right now, so remaining spots were filled by course number.");
+      }
+    } else if (goals.length === 0 && careerInterests.length === 0) {
+      warnings.push("Add Goals & Career Interests to get interest-based picks — remaining spots were filled by course number.");
+    }
+
+    // ---- Selection ----
+    const selected = [];
+    const selectedMeetings = [];
+    const perCategoryCount = Object.fromEntries(PLAN_CATEGORIES.map((k) => [k, 0]));
+    let plannedCredits = existingCredits;
+    const selectedCodes = new Set();
+
+    const pickSection = (course) => {
+      if (!hasTimetable) return { ok: true, section: null };
+      const sections = [...(sectionsByCode.get(course.code)?.values() || [])].sort((a, b) => {
+        const na = Number(a.section), nb = Number(b.section);
+        if (!Number.isNaN(na) && !Number.isNaN(nb)) return na - nb;
+        return String(a.section).localeCompare(String(b.section));
+      });
+      const taken = [...busyMeetings, ...selectedMeetings];
+      const free = sections.find((sec) => sec.meetings.every((m) => !taken.some((t) => meetingsOverlap(m, t))));
+      return free ? { ok: true, section: free } : { ok: false };
+    };
+
+    const categoryFull = (category) => {
+      const { count } = categorySettings[category];
+      return count !== null && perCategoryCount[category] >= count;
+    };
+
+    const tryAdd = (course, stage, reason, { ignoreTarget = false } = {}) => {
+      if (selectedCodes.has(course.code)) return false;
+      if (!ignoreTarget && plannedCredits >= targetCredits) return false;
+      if (categoryFull(course.category)) return false;
+      const { ok, section } = pickSection(course);
+      if (!ok) return false;
+
+      selected.push({
+        code: course.code,
+        title: course.title,
+        credits: course.credits,
+        category: course.category,
+        categoryLabel: PLAN_CATEGORY_LABELS[course.category],
+        blockLabel: course.blockLabel,
+        stage,
+        reason,
+        unlocks: course.unlocks,
+        isOpen: Boolean(section),
+        section: section ? { section: section.section, meetings: section.meetings } : null,
+      });
+      if (section) selectedMeetings.push(...section.meetings);
+      selectedCodes.add(course.code);
+      perCategoryCount[course.category] += 1;
+      plannedCredits += course.credits;
+      return true;
+    };
+
+    const byNumber = (a, b) => a.number - b.number || b.unlocks.length - a.unlocks.length;
+    const requiredReason = (c) =>
+      `Graduation requirement (${c.blockLabel})${c.unlocks.length ? ` — also unlocks ${c.unlocks.slice(0, 3).join(", ")}` : ""}.`;
+    const gatewayReason = (c) =>
+      `Prerequisite for ${c.unlocks.slice(0, 4).join(", ")}${c.unlocks.length > 4 ? ` and ${c.unlocks.length - 4} more` : ""} — taking it now opens those up.`;
+    const interestReason = (c) => interestRank.get(c.code)?.reason || `Counts toward ${c.blockLabel}.`;
+
+    // Stage 0: categories where the student pinned an exact number of courses.
+    PLAN_CATEGORIES.forEach((category) => {
+      const { enabled, count } = categorySettings[category];
+      if (!enabled || count === null) return;
+      const pool = eligible.filter((c) => c.category === category).sort((a, b) => {
+        if (a.required !== b.required) return a.required ? -1 : 1;
+        if (a.unlocks.length > 0 !== b.unlocks.length > 0) return a.unlocks.length > 0 ? -1 : 1;
+        const ra = interestRank.get(a.code)?.rank ?? Infinity;
+        const rb = interestRank.get(b.code)?.rank ?? Infinity;
+        return ra - rb || byNumber(a, b);
+      });
+      for (const course of pool) {
+        if (categoryFull(category)) break;
+        const stage = course.required
+          ? "required"
+          : course.unlocks.length
+          ? "gateway"
+          : interestRank.has(course.code)
+          ? "interest"
+          : "category";
+        const reason =
+          stage === "required"
+            ? requiredReason(course)
+            : stage === "gateway"
+            ? gatewayReason(course)
+            : stage === "interest"
+            ? interestReason(course)
+            : `You asked for ${count} ${PLAN_CATEGORY_LABELS[category]} course(s) — counts toward ${course.blockLabel}.`;
+        tryAdd(course, stage, reason, { ignoreTarget: true });
+      }
+      if (perCategoryCount[category] < count) {
+        warnings.push(`Only found ${perCategoryCount[category]} eligible ${PLAN_CATEGORY_LABELS[category]} course(s) (you asked for ${count}).`);
+      }
+    });
+
+    // Stage 1: core + graduation-required courses, lowest number first.
+    eligible
+      .filter((c) => c.required || c.category === "core")
+      .sort(byNumber)
+      .forEach((c) => tryAdd(c, "required", requiredReason(c)));
+
+    // Stage 2: 2-3 gateway courses (prerequisites for other courses), lowest number first.
+    let gatewayCount = 0;
+    eligible
+      .filter((c) => c.unlocks.length > 0)
+      .sort(byNumber)
+      .forEach((c) => {
+        if (gatewayCount >= MAX_GATEWAY_COURSES) return;
+        if (tryAdd(c, "gateway", gatewayReason(c))) gatewayCount += 1;
+      });
+
+    // Stage 3: by interest, then anything else by course number.
+    eligible
+      .filter((c) => interestRank.has(c.code))
+      .sort((a, b) => interestRank.get(a.code).rank - interestRank.get(b.code).rank)
+      .forEach((c) => tryAdd(c, "interest", interestReason(c)));
+    eligible.slice().sort(byNumber).forEach((c) => tryAdd(c, "fill", `Counts toward ${c.blockLabel}.`));
+
+    if (plannedCredits < targetCredits) {
+      warnings.push(
+        `Could only reach ${plannedCredits} of ${targetCredits} credits — not enough eligible courses${hasTimetable ? " on the timetable without time clashes" : ""} in the categories you picked.`
+      );
+    }
+
+    const stageOrder = { required: 0, gateway: 1, category: 2, interest: 3, fill: 4 };
+    selected.sort((a, b) => stageOrder[a.stage] - stageOrder[b.stage] || courseNumberOf(a.code) - courseNumberOf(b.code));
+
+    res.json({
+      plan: selected,
+      targetCredits,
+      existingCredits,
+      planCredits: selected.reduce((sum, c) => sum + c.credits, 0),
+      totalCredits: plannedCredits,
+      hasTimetable,
+      categoryCounts: perCategoryCount,
+      warnings,
+    });
+  } catch (error) {
+    console.error("POST /course-plan error:", error);
+    res.status(500).json({ error: error.message || "Failed to generate a course plan." });
+  }
+});
+
+// ------------------------------------------------
+// ADMIN DASHBOARD: one call that returns everything the Admin > Dashboard
+// page shows — overview counts, course demand (registrations + requests),
+// and each student's estimated terms left to graduate.
+//
+// Terms left = ceil(remaining credits / 18), where remaining credits =
+// the curriculum's total_credits_required minus the credits of courses
+// the student has passed (each course code counted once).
+// ------------------------------------------------
+const DASHBOARD_CREDITS_PER_TERM = 18;
+
+// Supabase returns at most 1000 rows per request, so tables that grow
+// with the number of students (grades, registrations) are read in pages.
+async function fetchAllRows(table, columns, pageSize = 1000) {
+  const rows = [];
+  for (let from = 0; ; from += pageSize) {
+    const { data, error } = await supabase
+      .from(table)
+      .select(columns)
+      .range(from, from + pageSize - 1);
+    if (error) throw new Error(`${table}: ${error.message}`);
+    rows.push(...(data || []));
+    if (!data || data.length < pageSize) break;
+  }
+  return rows;
+}
+
+app.get("/admin-dashboard", async (req, res) => {
+  try {
+    const [students, advisors, registrations, requested, grades, curricula, courses, approvals] =
+      await Promise.all([
+        fetchAllRows("students", "student_id, name, curriculum_year, advisor_id"),
+        fetchAllRows("advisors", "id"),
+        fetchAllRows(REGISTRATIONS_TABLE, "student_id, course_code, section"),
+        fetchAllRows(REQUESTED_COURSES_TABLE, "student_id, course_code, course_name"),
+        fetchAllRows("grades", "student_id, course_code, grade, credits"),
+        fetchAllRows(CURRICULA_TABLE, "year, total_credits_required"),
+        fetchAllRows(COURSES_TABLE, "course_code, course_title"),
+        // Optional table — a missing planner_approvals table shouldn't
+        // break the whole dashboard.
+        fetchAllRows(PLANNER_APPROVALS_TABLE, "student_id, status").catch((err) => {
+          console.warn("Dashboard: could not load planner approvals:", err.message);
+          return null;
+        }),
+      ]);
+
+    const upperId = (v) => String(v || "").trim().toUpperCase();
+    const titleByCode = new Map();
+    courses.forEach((c) => {
+      const code = normalizeCourseCode(c.course_code);
+      if (code && !titleByCode.has(code)) titleByCode.set(code, c.course_title || "");
+    });
+
+    // ---- Overview ----
+    const approvalCounts = { pending: 0, approved: 0, rejected: 0 };
+    (approvals || []).forEach((a) => {
+      const status = String(a.status || "").toLowerCase();
+      if (status in approvalCounts) approvalCounts[status] += 1;
+    });
+    const studentsWithPlan = new Set(registrations.map((r) => upperId(r.student_id)));
+
+    // ---- Course demand ----
+    const demand = new Map(); // code -> { registered:Set, requested:Set, sections:Map }
+    const demandFor = (code, fallbackTitle = "") => {
+      if (!demand.has(code)) {
+        demand.set(code, {
+          code,
+          title: titleByCode.get(code) || fallbackTitle,
+          registered: new Set(),
+          requested: new Set(),
+          sections: new Map(),
+        });
+      }
+      return demand.get(code);
+    };
+    registrations.forEach((r) => {
+      const code = normalizeCourseCode(r.course_code);
+      if (!code) return;
+      const entry = demandFor(code);
+      const sid = upperId(r.student_id);
+      entry.registered.add(sid);
+      const sec = String(r.section || "1").trim() || "1";
+      if (!entry.sections.has(sec)) entry.sections.set(sec, new Set());
+      entry.sections.get(sec).add(sid);
+    });
+    requested.forEach((r) => {
+      const code = normalizeCourseCode(r.course_code);
+      if (!code) return;
+      demandFor(code, r.course_name || "").requested.add(upperId(r.student_id));
+    });
+    const courseDemand = [...demand.values()]
+      .map((d) => ({
+        code: d.code,
+        title: d.title,
+        registered: d.registered.size,
+        requested: d.requested.size,
+        total: d.registered.size + d.requested.size,
+        sections: [...d.sections.entries()]
+          .map(([section, set]) => ({ section, count: set.size }))
+          .sort((a, b) => String(a.section).localeCompare(String(b.section), undefined, { numeric: true })),
+      }))
+      .sort((a, b) => b.total - a.total || a.code.localeCompare(b.code));
+
+    // ---- Graduation (terms left) ----
+    const NON_PASSING_GRADES = new Set(["F", "W", "WF", "I", ""]);
+    const passedByStudent = new Map(); // sid -> Map(code -> credits)
+    const hasGrades = new Set();
+    grades.forEach((g) => {
+      const sid = upperId(g.student_id);
+      hasGrades.add(sid);
+      if (NON_PASSING_GRADES.has(String(g.grade || "").trim().toUpperCase())) return;
+      const code = normalizeCourseCode(g.course_code);
+      if (!code) return;
+      if (!passedByStudent.has(sid)) passedByStudent.set(sid, new Map());
+      const map = passedByStudent.get(sid);
+      map.set(code, Math.max(map.get(code) || 0, Number(g.credits) || 0));
+    });
+
+    const availableYears = curricula.map((c) => String(c.year).trim());
+    const totalByYear = new Map(curricula.map((c) => [String(c.year).trim(), Number(c.total_credits_required) || 0]));
+
+    const graduation = students.map((s) => {
+      const sid = upperId(s.student_id);
+      let year = String(s.curriculum_year || "").trim();
+      if (!totalByYear.has(year)) year = deriveCurriculumYearFromId(s.student_id, availableYears) || "";
+      const totalRequired = totalByYear.get(year) || 0;
+      const earned = [...(passedByStudent.get(sid)?.values() || [])].reduce((a, b) => a + b, 0);
+
+      let status = "ok";
+      if (!totalRequired) status = "no_curriculum";
+      else if (!hasGrades.has(sid)) status = "no_grades";
+
+      const remaining = totalRequired ? Math.max(totalRequired - earned, 0) : null;
+      return {
+        studentId: s.student_id,
+        name: s.name || "",
+        advisorId: s.advisor_id || null,
+        curriculumYear: year || null,
+        totalRequired,
+        earned,
+        remaining,
+        termsLeft: status === "ok" ? Math.ceil(remaining / DASHBOARD_CREDITS_PER_TERM) : null,
+        status,
+      };
+    });
+
+    res.json({
+      creditsPerTerm: DASHBOARD_CREDITS_PER_TERM,
+      overview: {
+        students: students.length,
+        advisors: advisors.length,
+        studentsWithoutAdvisor: students.filter((s) => !s.advisor_id).length,
+        studentsWithPlan: studentsWithPlan.size,
+        approvals: approvals ? approvalCounts : null,
+        registrations: registrations.length,
+        requests: requested.length,
+      },
+      courseDemand,
+      graduation,
+    });
+  } catch (error) {
+    console.error("GET /admin-dashboard error:", error);
+    res.status(500).json({ error: error.message || "Failed to load dashboard." });
+  }
+});
+
+// ------------------------------------------------
 // PLANNER INSIGHTS: turns the student's current Selected Course list (on
 // the Planner page) into an AI-judged difficulty rating and a short
 // balance suggestion. Falls back to a simple course-count heuristic (what
@@ -3197,10 +3835,35 @@ app.patch(
 
 // Student: save the current Selected Course list. Replaces whatever was
 // previously saved for this student with the new list.
+// Advisor-side actions on a student (editing their plan, generating a
+// plan for them) are only allowed for that student's assigned advisor.
+// Returns an error { status, error } or null when allowed.
+async function checkAdvisorOwnsStudent(advisorId, studentId) {
+  const advisorClean = String(advisorId || "").trim().toUpperCase();
+  const { data: student, error } = await supabase
+    .from("students")
+    .select("student_id, advisor_id")
+    .ilike("student_id", String(studentId || "").trim())
+    .maybeSingle();
+  if (error) return { status: 500, error: error.message };
+  if (!student) return { status: 404, error: "Student not found." };
+  if (String(student.advisor_id || "").trim().toUpperCase() !== advisorClean) {
+    return { status: 403, error: "You can only manage plans for your assigned students." };
+  }
+  return null;
+}
+
 app.post("/registrations", async (req, res) => {
   try {
-    const { studentId, courses } = req.body;
+    const { studentId, courses, advisorId } = req.body;
     if (!studentId) return res.status(400).json({ error: "studentId is required" });
+
+    // Sent when an advisor edits the plan from their side. Saving still
+    // resets the plan to "pending" below, same as a student save.
+    if (advisorId) {
+      const denied = await checkAdvisorOwnsStudent(advisorId, studentId);
+      if (denied) return res.status(denied.status).json({ error: denied.error });
+    }
 
     // Preserve the selected section and label. Admin totals are still
     // grouped by course_code, while a student's plan can show its section.
@@ -3376,8 +4039,15 @@ app.get("/requested-courses/:studentId", async (req, res) => {
 // since High-Demand Courses counts distinct students per course_code.
 app.post("/requested-courses", async (req, res) => {
   try {
-    const { studentId, courses } = req.body;
+    const { studentId, courses, advisorId } = req.body;
     if (!studentId) return res.status(400).json({ error: "studentId is required" });
+
+    // Only sent by an advisor acting for a student — must be that
+    // student's assigned advisor. Students never send advisorId.
+    if (advisorId) {
+      const denied = await checkAdvisorOwnsStudent(advisorId, studentId);
+      if (denied) return res.status(denied.status).json({ error: denied.error });
+    }
 
     const courseList = Array.from(
       new Map(

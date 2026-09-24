@@ -5,6 +5,7 @@ import { normalizeCourseCode, extractCourseCodes } from "../utils/courseCode.js"
 import { getCurrentPrereqGroupId } from "../utils/prereqGroup.js";
 import { getFinalCourseGrades, isCompletedGrade } from "../utils/graduation.js";
 import { TIMETABLE_DAY_LABELS } from "../data/mockTimetable.js";
+import CoursePlanGenerator from "./CoursePlanGenerator.jsx";
 
 import "./CourseRecommendation.css";
 
@@ -292,8 +293,17 @@ function CourseRecommendation({ studentId, onNavigate }) {
     handleAdd(course, section);
   };
 
+  // Courses added from the generated plan are no longer "to do" — drop
+  // them from the recommendation list below too.
+  const handlePlanCoursesAdded = (codes) => {
+    const added = new Set(codes.map((c) => normalizeCourseCode(c)));
+    setRecommendations((prev) => prev.filter((c) => !added.has(normalizeCourseCode(c.code))));
+  };
+
   return (
     <div className="course-rec">
+      <CoursePlanGenerator studentId={studentId} onCoursesAdded={handlePlanCoursesAdded} />
+
       <div className="course-rec-card">
         <div className="course-rec-header">
           <h3>
