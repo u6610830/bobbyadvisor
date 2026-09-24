@@ -8,6 +8,7 @@ import { createClient } from "@supabase/supabase-js";
 import supabase from "./supabase.js";
 import bcrypt from "bcryptjs";
 dotenv.config();
+import { httpServerHandler } from "cloudflare:node";
 
 const app = express();
 
@@ -4387,9 +4388,10 @@ app.put("/courses/:courseCode", async (req, res) => {
 // STUDENTS
 // ------------------------------------------------
 
+const PORT = 3000;
 
-const PORT = process.env.PORT || 3001;
+app.listen(PORT);
 
-app.listen(PORT, "0.0.0.0", () => {
-  console.log(`Server running on port ${PORT}`);
+export default httpServerHandler({
+  port: PORT,
 });
