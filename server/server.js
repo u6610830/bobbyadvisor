@@ -2456,18 +2456,24 @@ ${JSON.stringify(context)}
 
     const reply = (response.text || "").trim();
 
-    // Best-effort save — a logging hiccup here shouldn't cost the student
-    // the reply they're already waiting on, so this never blocks or fails
-    // the response.
-    supabase
-      .from(BOBBY_MESSAGES_TABLE)
-      .insert([
-        { student_id: studentId, role: "user", text: message },
-        { student_id: studentId, role: "bot", text: reply },
-      ])
-      .then(({ error: saveError }) => {
-        if (saveError) console.error("Failed to save Bobby chat message:", saveError.message);
-      });
+    // Save the exchange. Must be awaited: on Cloudflare Workers a promise
+    // that is still pending when the response is sent gets cancelled, so the
+    // old fire-and-forget insert never reached Supabase. A save failure is
+    // only logged — the student still gets Bobby's reply.
+    try {
+      const { error: saveError } = await supabase
+        .from(BOBBY_MESSAGES_TABLE)
+        .insert([
+          { student_id: studentId, role: "user", text: message },
+          { student_id: studentId, role: "bot", text: reply },
+        ]);
+
+      if (saveError) {
+        console.error("Failed to save Bobby chat message:", saveError.message);
+      }
+    } catch (saveError) {
+      console.error("Failed to save Bobby chat message:", saveError);
+    }
 
     res.json({ reply });
   } catch (error) {
