@@ -221,22 +221,13 @@
   background: var(--role-primary-hover);
 }
 
-.timetable-note-input {
-  width: 100%;
-  box-sizing: border-box;
-  border: 1px solid transparent;
-  background: transparent;
+/* Read-only note under the timetable heading. */
+.timetable-note {
   font-size: 14px;
   font-weight: 600;
   color: var(--text-muted);
   padding: 4px 0 16px;
   margin: 0;
-}
-
-.timetable-note-input:hover,
-.timetable-note-input:focus {
-  outline: none;
-  border-bottom: 1px dashed var(--border);
 }
 
 .timetable-hint {

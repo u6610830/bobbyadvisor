@@ -214,13 +214,6 @@ function AdminCourseTimetable() {
   useEffect(() => saveState(TITLE_KEY, title), [title]);
   useEffect(() => saveState(TEMPLATE_KEY, template), [template]);
 
-  const handleNoteBlur = () => {
-    if (dbStatus !== "connected") return;
-    axios.put(`${API_BASE}/timetable-note`, { note }).catch((err) =>
-      console.warn("Failed to save note to database:", err.message)
-    );
-  };
-
   const displayEntries = useMemo(
     () => resolveDisplayColors(entries, colorOverrides),
     [entries, colorOverrides]
@@ -520,13 +513,7 @@ function AdminCourseTimetable() {
           </button>
         </div>
 
-        <input
-          className="timetable-note-input"
-          value={note}
-          onChange={(e) => setNote(e.target.value)}
-          onBlur={handleNoteBlur}
-          placeholder="Add a note (e.g. seat reservations)…"
-        />
+        {note && <p className="timetable-note">{note}</p>}
 
         <div className="tt-grid-scroll">
           <div className="tt-grid">
