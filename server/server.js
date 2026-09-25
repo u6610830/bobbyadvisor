@@ -1455,6 +1455,13 @@ const REGISTRATIONS_TABLE = "student_registrations";
 const REQUESTED_COURSES_TABLE = "requested_unscheduled_courses";
 const ADVISOR_MESSAGES_TABLE = "advisor_messages";
 const BOBBY_MESSAGES_TABLE = "bobby_chat_messages";
+// Roles stored in bobby_chat_messages. "user"/"bot" = AI Chatbot (Bobby),
+// the other two = the student's "Chat with Advisor" conversation.
+const BOBBY_AI_ROLES = ["user", "bot"];
+const ADVISOR_CHAT_ROLES = {
+  student: "student_to_advisor",
+  advisor: "advisor_to_student",
+};
 const COURSES_TABLE = "courses";
 const ADVISOR_RECOMMENDATIONS_TABLE = "advisor_course_recommendation";
 const PLANNER_APPROVALS_TABLE = "planner_approvals";
@@ -2209,6 +2216,8 @@ app.get("/chat/bobby/:studentId", async (req, res) => {
       .from(BOBBY_MESSAGES_TABLE)
       .select("id, role, text, created_at")
       .eq("student_id", studentId)
+      // Only Bobby's own conversation — advisor-chat rows share this table.
+      .in("role", BOBBY_AI_ROLES)
       .order("created_at", { ascending: true });
 
     if (error) return res.status(500).json({ error: error.message });
@@ -4292,6 +4301,33 @@ app.post("/advisor-messages", async (req, res) => {
 
     if (error) {
       return res.status(500).json({ error: error.message });
+    }
+
+    // Also keep a copy of the student's "Chat with Advisor" conversation in
+    // bobby_chat_messages. Awaited (Cloudflare Workers may drop un-awaited
+    // promises after the response), but a failure here never blocks the
+    // message itself — advisor_messages stays the source of truth for the
+    // chat screen, read receipts and unread badges.
+    try {
+      const { error: bobbyLogError } = await supabase
+        .from(BOBBY_MESSAGES_TABLE)
+        .insert({
+          student_id: studentId,
+          role: ADVISOR_CHAT_ROLES[senderRole],
+          text: message,
+        });
+
+      if (bobbyLogError) {
+        console.error(
+          "Failed to save advisor chat to bobby_chat_messages:",
+          bobbyLogError.message
+        );
+      }
+    } catch (bobbyLogError) {
+      console.error(
+        "Failed to save advisor chat to bobby_chat_messages:",
+        bobbyLogError
+      );
     }
 
     res.status(201).json({ message: data });
