@@ -15,6 +15,8 @@ import "./AdminCourseTimetable.css";
 const API_BASE = import.meta.env.VITE_API_BASE || (import.meta.env.PROD ? "https://api.bobbyadvisor.org" : "http://localhost:3001");
 const ENTRIES_KEY = "timetableEntries"; // localStorage cache/fallback if the DB is unreachable
 const NOTE_KEY = "timetableNote";
+const TITLE_KEY = "timetableTitle"; // heading read from the last uploaded file
+const DEFAULT_TITLE = "CS & IT Course Timetable";
 const TEMPLATE_KEY = "timetableTemplateImage"; // { fileName, dataUrl, isImage, uploadedAt } | null
 const COLOR_OVERRIDES_KEY = "timetableColorOverrides";
 const TIMETABLE_COLORS = ["#2563EB", "#7C3AED", "#DB2777", "#EA580C", "#16A34A", "#0891B2", "#CA8A04"];
@@ -171,6 +173,7 @@ function AdminCourseTimetable() {
   const [entries, setEntries] = useState(() => loadState(ENTRIES_KEY, DEFAULT_TIMETABLE_ENTRIES));
   const [colorOverrides, setColorOverrides] = useState(() => loadState(COLOR_OVERRIDES_KEY, {}));
   const [note, setNote] = useState(() => loadState(NOTE_KEY, TIMETABLE_NOTE));
+  const [title, setTitle] = useState(() => loadState(TITLE_KEY, ""));
   const [template, setTemplate] = useState(() => loadState(TEMPLATE_KEY, null));
   const [pendingFile, setPendingFile] = useState(null);
   const [uploadMessage, setUploadMessage] = useState("");
@@ -195,6 +198,7 @@ function AdminCourseTimetable() {
         if (cancelled) return;
         setEntries(entriesRes.data.entries?.length ? entriesRes.data.entries : DEFAULT_TIMETABLE_ENTRIES);
         if (noteRes?.data?.note) setNote(noteRes.data.note);
+        if (noteRes?.data?.title) setTitle(noteRes.data.title);
         setDbStatus("connected");
       } catch (err) {
         console.warn("Timetable DB unreachable, using local cache:", err.message);
@@ -207,6 +211,7 @@ function AdminCourseTimetable() {
   useEffect(() => saveState(ENTRIES_KEY, entries), [entries]);
   useEffect(() => saveState(COLOR_OVERRIDES_KEY, colorOverrides), [colorOverrides]);
   useEffect(() => saveState(NOTE_KEY, note), [note]);
+  useEffect(() => saveState(TITLE_KEY, title), [title]);
   useEffect(() => saveState(TEMPLATE_KEY, template), [template]);
 
   const handleNoteBlur = () => {
@@ -295,6 +300,7 @@ function AdminCourseTimetable() {
       });
 
       const { entries: extracted, reviewItems: needsReview } = splitExtractedClasses(rawClasses);
+      const extractedTitle = String(response.data.title || "").trim();
 
       if (extracted.length === 0 && needsReview.length === 0) {
         setUploadMessage(
@@ -304,7 +310,10 @@ function AdminCourseTimetable() {
         // Persist the freshly-extracted set to the database in one go.
         let savedEntries = extracted;
         try {
-          const importRes = await axios.post(`${API_BASE}/timetable/import`, { entries: extracted });
+          const importRes = await axios.post(`${API_BASE}/timetable/import`, {
+            entries: extracted,
+            title: extractedTitle,
+          });
           savedEntries = importRes.data.entries?.length ? importRes.data.entries : extracted;
           setDbStatus("connected");
         } catch (err) {
@@ -314,6 +323,7 @@ function AdminCourseTimetable() {
 
         setEntries(savedEntries);
         setReviewItems(needsReview);
+        if (extractedTitle) setTitle(extractedTitle);
         const parts = [];
         if (extracted.length > 0) {
           parts.push(`${extracted.length} class${extracted.length === 1 ? "" : "es"} updated`);
@@ -414,7 +424,7 @@ function AdminCourseTimetable() {
       {dbStatus === "offline" && (
         <p className="timetable-db-warning">
           Not connected to the database right now — changes are saved on this device only.
-          Run <code>server/supabase_timetable.sql</code> in Supabase and make sure the server is running.
+          Make sure the server is running and the <code>course_timetable</code> table exists in Supabase.
         </p>
       )}
 
@@ -504,7 +514,7 @@ function AdminCourseTimetable() {
 
       <div className="timetable-card">
         <div className="timetable-card-head">
-          <h3>1/2026 CS &amp; IT Course Timetable</h3>
+          <h3>{title || DEFAULT_TITLE}</h3>
           <button type="button" className="timetable-add-btn" onClick={() => openAddForm(0)}>
             <Plus size={15} /> Add class
           </button>

@@ -1002,45 +1002,44 @@ function normalizeTimeStr(value) {
   return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
 }
 
-// Extract a weekly class schedule from an uploaded timetable image/PDF
-app.post("/extract-timetable", upload.single("file"), async (req, res) => {
-  try {
-    if (!req.file) {
-      return res.status(400).json({
-        error: "No file uploaded"
-      });
+// Replace a set of rows "all or nothing". Supabase's REST API has no
+// multi-statement transaction, so the old "delete, then insert" pattern
+// left the table EMPTY whenever the insert failed (bad row, constraint,
+// network blip). This keeps a copy of the rows it deletes and puts them
+// back if the insert fails, so a failed save never wipes existing data.
+//   filter: (query) => query.eq(...)   — selects the rows being replaced
+async function replaceRowsSafely(table, filter, newRows) {
+  const { data: previousRows, error: readError } = await filter(
+    supabase.from(table).select("*")
+  );
+  if (readError) return { error: readError };
+
+  const { error: deleteError } = await filter(supabase.from(table).delete());
+  if (deleteError) return { error: deleteError };
+
+  if (!newRows.length) return { data: [] };
+
+  const { data, error } = await supabase.from(table).insert(newRows).select();
+  if (!error) return { data: data || [] };
+
+  if (previousRows && previousRows.length > 0) {
+    let { error: restoreError } = await supabase.from(table).insert(previousRows);
+    if (restoreError) {
+      // Identity columns declared "GENERATED ALWAYS" reject explicit ids —
+      // restore the content without them.
+      ({ error: restoreError } = await supabase
+        .from(table)
+        .insert(previousRows.map(({ id, ...rest }) => rest)));
     }
+    if (restoreError) {
+      console.error(`replaceRowsSafely: could not restore ${table}:`, restoreError.message);
+    }
+  }
+  return { error };
+}
 
-    console.log("Extracting timetable from:", req.file.originalname);
-
-    const fileBuffer = req.file.buffer;
-    const base64 = fileBuffer.toString("base64");
-
-    const response = await generateGeminiContent({
-      model: GEMINI_MODEL,
-      config: {
-        // Deterministic reading — this is a transcription task, not a
-        // creative one, so we don't want the model "guessing" a plausible
-        // but wrong digit differently between blocks or between runs.
-        temperature: 0,
-      },
-      contents: [
-        {
-          role: "user",
-          parts: [
-            {
-              text: `
-Get every class from this course timetable image/PDF.
-
-Rules:
-- Return ONLY valid JSON, no markdown fences.
-- "day" must be one of: SUN, MON, TUE, WED, THU, FRI, SAT (3-letter, uppercase).
-- "start" and "end" must be 24-hour "HH:MM" strings.
-- "name" is the full course name shown for that class. Preserve it exactly; if it is not visible, use "".
-- "section" is the section/Sec value shown for that class. Some source files put this value in a column labelled "Room"; treat that value as the section, not as a room. If missing, use "1".
-- "code" is the course code (e.g. CSX3010). If two codes are slash-separated for a cross-listed class (e.g. "CSX4107 / ITX4107"), keep the full string exactly as printed, slash included.
-- If the same course appears more than once (different day/time), list it as a separate entry each time.
-
+// Time-reading rules shared by both timetable extraction passes.
+const TIMETABLE_TIME_RULES = `
 TIME READING — CRITICAL:
 - The timetable uses fixed 30-minute grid intervals.
 - Both :00 and :30 are valid timetable times.
@@ -1092,38 +1091,156 @@ GRID TIME LABELS:
 - Return the printed time labels along the timetable axis as "gridTimeLabels".
 - Return only labels actually printed in the image.
 - Do not invent an extra label for the outer edge.
+`;
 
+// Timetable extraction prompt. With no argument it asks for every class;
+// with a list of already-found classes it asks ONLY for the ones missing
+// from that list (second pass).
+function buildTimetablePrompt(alreadyFound = null) {
+  const task = alreadyFound
+    ? `This course timetable was already read once, but some class blocks were MISSED.
+These classes were already found (day start-end code (section)):
+${alreadyFound}
+
+Look at EVERY colored block in the image again, band by band, and return ONLY
+the classes that are NOT in the list above. If nothing is missing, return
+{ "gridTimeLabels": [], "classes": [] }.`
+    : `Get EVERY class from this course timetable image/PDF.`;
+
+  return `
+${task}
+
+COMPLETENESS — CRITICAL:
+- Every colored block in the grid is one class. Include ALL of them.
+- Do NOT skip a block because of its color, course level (1000-4000),
+  program prefix (CSX, ITX, EG, CE, ...) or because it looks like another one.
+- Work day band by day band, top to bottom. Inside each band read the
+  morning column top to bottom, then the afternoon column top to bottom.
+- One day band can hold 10+ blocks. Count them before moving on.
+
+DAY BANDS:
+- Days are horizontal bands (SUN/MON, TUE, WED, THU, FRI, SAT) separated by
+  thick black bars. The day name is in the gray column on the left.
+- If a band's day label is missing or unreadable, infer it from its position
+  relative to the labelled bands (e.g. the band directly above TUE is MON).
+
+Rules:
+- Return ONLY valid JSON, no markdown fences.
+- "day" must be one of: SUN, MON, TUE, WED, THU, FRI, SAT (3-letter, uppercase).
+- "start" and "end" must be 24-hour "HH:MM" strings.
+- "code" is the course code (e.g. CSX3010). If two codes are slash-separated for
+  a cross-listed class (e.g. "CSX4107 / ITX4107"), keep the full string exactly
+  as printed, slash included. Codes like "CSX46xx" are valid — keep them as printed.
+- "name" is the course name only — without the code and without the section.
+  Preserve it exactly; if it is not visible, use "".
+- "section" is the section/Sec value. It is often printed in parentheses after
+  the name, e.g. "Data Mining (541)" -> "541". Some files put it in a column
+  labelled "Room"; treat that value as the section. If missing, use "1".
+- If the same course appears more than once (different day/time/section), list
+  each block as a separate entry.
+
+${TIMETABLE_TIME_RULES}
 OTHER RULES:
-- Ignore legends, headers, notes, seat counts and instructor names.
-- If day, start or end is cut off, blocked, unclear or not visible, return null.
-- Do NOT guess missing values.
-- Still include a class if some fields are null.
-- If the same course appears on multiple days/times, return each occurrence separately.
+- Ignore legends, headers, notes, seat counts (e.g. "[40 seats]") and instructor names.
+- If day, start or end is truly unreadable, return null for it — still include the class.
+
+TITLE:
+- "title" is the main heading printed at the top of the timetable, exactly as
+  printed (e.g. "(2/2026) CS&IT Course Timetable (Draft-1)"). Do not include a
+  date line. If there is no heading, use "".
 
 Return exactly this shape:
-{ "gridTimeLabels": ["09:00", "09:30", "10:00", "..."], "classes": [ { "day": "MON", "code": "CSX3010", "name": "Data Structures and Algorithms", "section": "1", "start": "09:00", "end": "12:00" } ] }
-              `
-            },
-            {
-              inlineData: {
-                mimeType: req.file.mimetype,
-                data: base64
-              }
-            }
-          ]
-        }
-      ]
-    });
+{ "title": "(2/2026) CS&IT Course Timetable", "gridTimeLabels": ["09:00", "09:30", "10:00", "..."], "classes": [ { "day": "MON", "code": "CSX3010", "name": "Data Structures and Algorithms", "section": "541", "start": "09:00", "end": "12:00" } ] }
+`;
+}
 
-    const cleanedText = response.text
-      .replace(/```json/gi, "")
-      .replace(/```/g, "")
-      .trim();
+async function askGeminiForTimetable(prompt, mimeType, base64) {
+  const response = await generateGeminiContent({
+    model: GEMINI_MODEL,
+    config: {
+      // Deterministic reading — this is a transcription task.
+      temperature: 0,
+      responseMimeType: "application/json",
+      // A full faculty timetable is 60+ classes; don't let the JSON get
+      // cut off halfway through the list.
+      maxOutputTokens: 16384,
+    },
+    contents: [
+      {
+        role: "user",
+        parts: [{ text: prompt }, { inlineData: { mimeType, data: base64 } }],
+      },
+    ],
+  });
 
-    const result = JSON.parse(cleanedText);
+  const cleanedText = String(response.text || "")
+    .replace(/```json/gi, "")
+    .replace(/```/g, "")
+    .trim();
+
+  return JSON.parse(cleanedText);
+}
+
+// Extract a weekly class schedule from an uploaded timetable image/PDF
+app.post("/extract-timetable", upload.single("file"), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({
+        error: "No file uploaded"
+      });
+    }
+
+    console.log("Extracting timetable from:", req.file.originalname);
+
+    const fileBuffer = req.file.buffer;
+    const base64 = fileBuffer.toString("base64");
+
+    const mimeType = req.file.mimetype;
+
+    // Pass 1: read the whole timetable, day band by day band.
+    const result = await askGeminiForTimetable(buildTimetablePrompt(), mimeType, base64);
 
     if (!result.classes || !Array.isArray(result.classes)) {
       throw new Error("Invalid timetable data returned by Gemini");
+    }
+
+    // Pass 2: on a dense timetable (60+ blocks) the lite model skips
+    // blocks — often whole colours or most of a day. Show it what it
+    // already found and ask ONLY for what's missing, then merge.
+    try {
+      const alreadyFound = result.classes
+        .map((c) => `${c.day || "?"} ${c.start || "?"}-${c.end || "?"} ${c.code || "?"} (${c.section || "?"})`)
+        .join("\n");
+
+      const missing = await askGeminiForTimetable(
+        buildTimetablePrompt(alreadyFound),
+        mimeType,
+        base64
+      );
+
+      if (Array.isArray(missing.classes) && missing.classes.length > 0) {
+        const keyOf = (c) =>
+          [
+            String(c.code || "").replace(/\s+/g, "").toUpperCase(),
+            String(c.section || "").trim(),
+            String(c.day || "").trim().toUpperCase(),
+            normalizeTimeStr(c.start) || "",
+          ].join("|");
+        const seen = new Set(result.classes.map(keyOf));
+        const added = missing.classes.filter((c) => {
+          const key = keyOf(c);
+          if (!c.code || seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        });
+        if (added.length > 0) {
+          console.log(`Timetable extraction: second pass recovered ${added.length} missed class(es)`);
+          result.classes = [...result.classes, ...added];
+        }
+      }
+    } catch (secondPassError) {
+      // Pass 1 already succeeded — keep its result rather than failing.
+      console.warn("Timetable extraction: second pass failed:", secondPassError.message);
     }
 
     // Normalize every time to a strict "HH:MM" before anything else runs,
@@ -1248,7 +1365,9 @@ Return exactly this shape:
 
     // No cleanup is needed: memoryStorage is request-scoped.
 
-    res.json({ classes });
+    const title = typeof result.title === "string" ? result.title.trim() : "";
+
+    res.json({ classes, title });
 
   } catch (error) {
     console.error("POST /extract-timetable error:", error);
@@ -1274,6 +1393,10 @@ Return exactly this shape:
 
 const TIMETABLE_TABLE = "course_timetable";
 const TIMETABLE_NOTE_TABLE = "course_timetable_note";
+// course_timetable_note holds two single-value rows: id 1 = the admin's
+// free-text note, id 2 = the heading read from the last uploaded file.
+// (Keeps the title without needing a schema change.)
+const TIMETABLE_TITLE_ROW_ID = 2;
 const DAY_CODES = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"];
 const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 const DISPLAY_COLORS = ["#6B7280", "#E8833C", "#8E5FC7", "#5BB85C", "#F0BB3E", "#E1483F", "#4F93D6"];
@@ -1352,22 +1475,25 @@ app.post("/timetable/import", async (req, res) => {
   try {
     const entries = Array.isArray(req.body.entries) ? req.body.entries : [];
 
-    const { error: deleteError } = await supabase
-      .from(TIMETABLE_TABLE)
-      .delete()
-      .not("id", "is", null);
-    if (deleteError) return res.status(500).json({ error: deleteError.message });
-
-    if (entries.length === 0) return res.json({ entries: [] });
-
-    const { data, error } = await supabase
-      .from(TIMETABLE_TABLE)
-      .insert(entries.map(entryToRow))
-      .select();
+    const { data, error } = await replaceRowsSafely(
+      TIMETABLE_TABLE,
+      (query) => query.not("id", "is", null),
+      entries.map(entryToRow)
+    );
 
     if (error) return res.status(500).json({ error: error.message });
 
-    res.json({ entries: (data || []).map(rowToEntry) });
+    // Heading read from the uploaded file, e.g. "(2/2026) CS&IT Course
+    // Timetable (Draft-1)". Only overwrite when the new file had one.
+    const title = typeof req.body.title === "string" ? req.body.title.trim() : "";
+    if (title) {
+      const { error: titleError } = await supabase
+        .from(TIMETABLE_NOTE_TABLE)
+        .upsert({ id: TIMETABLE_TITLE_ROW_ID, note: title });
+      if (titleError) console.warn("Could not save timetable title:", titleError.message);
+    }
+
+    res.json({ entries: (data || []).map(rowToEntry), title: title || null });
   } catch (error) {
     console.error("POST /timetable/import error:", error);
     res.status(500).json({ error: error.message });
@@ -1415,13 +1541,16 @@ app.get("/timetable-note", async (req, res) => {
   try {
     const { data, error } = await supabase
       .from(TIMETABLE_NOTE_TABLE)
-      .select("note")
-      .eq("id", 1)
-      .maybeSingle();
+      .select("id, note")
+      .in("id", [1, TIMETABLE_TITLE_ROW_ID]);
 
     if (error) return res.status(500).json({ error: error.message });
 
-    res.json({ note: data?.note || "" });
+    const byId = new Map((data || []).map((row) => [Number(row.id), row.note]));
+    res.json({
+      note: byId.get(1) || "",
+      title: byId.get(TIMETABLE_TITLE_ROW_ID) || "",
+    });
   } catch (error) {
     console.error("GET /timetable-note error:", error);
     res.status(500).json({ error: error.message });
@@ -1708,26 +1837,17 @@ app.post("/prerequisites/import", async (req, res) => {
   try {
     const rows = Array.isArray(req.body.rows) ? req.body.rows : [];
 
-    const { error: deleteError } = await supabase
-      .from(PREREQ_TABLE)
-      .delete()
-      .not("id", "is", null);
-    if (deleteError) return res.status(500).json({ error: deleteError.message });
-
-    if (rows.length === 0) return res.json({ prerequisites: [] });
-
-    const { data, error } = await supabase
-      .from(PREREQ_TABLE)
-      .insert(
-        rows.map((r) => ({
-          course_code: String(r.course_code || "").trim().toUpperCase(),
-          course_title: r.course_title || "",
-          g1_text: r.g1_text || "",
-          g2_text: r.g2_text || "",
-          g3_text: r.g3_text || "",
-        }))
-      )
-      .select();
+    const { data, error } = await replaceRowsSafely(
+      PREREQ_TABLE,
+      (query) => query.not("id", "is", null),
+      rows.map((r) => ({
+        course_code: String(r.course_code || "").trim().toUpperCase(),
+        course_title: r.course_title || "",
+        g1_text: r.g1_text || "",
+        g2_text: r.g2_text || "",
+        g3_text: r.g3_text || "",
+      }))
+    );
 
     if (error) return res.status(500).json({ error: error.message });
 
@@ -1991,22 +2111,16 @@ app.put("/curricula/:year", async (req, res) => {
     });
     if (upsertError) return res.status(500).json({ error: upsertError.message });
 
-    const { error: deleteError } = await supabase
-      .from(CURRICULUM_GROUPS_TABLE)
-      .delete()
-      .eq("curriculum_year", year);
-    if (deleteError) return res.status(500).json({ error: deleteError.message });
-
     const blocks = Array.isArray(groups) ? groups : [];
-    let savedGroups = [];
-    if (blocks.length > 0) {
-      const { data, error: insertError } = await supabase
-        .from(CURRICULUM_GROUPS_TABLE)
-        .insert(blocks.map((block, index) => blockToGroupRow(year, block, index)))
-        .select();
-      if (insertError) return res.status(500).json({ error: insertError.message });
-      savedGroups = (data || []).sort((a, b) => a.sort_order - b.sort_order).map(groupRowToBlock);
-    }
+    const { data: groupRows, error: groupsError } = await replaceRowsSafely(
+      CURRICULUM_GROUPS_TABLE,
+      (query) => query.eq("curriculum_year", year),
+      blocks.map((block, index) => blockToGroupRow(year, block, index))
+    );
+    if (groupsError) return res.status(500).json({ error: groupsError.message });
+    const savedGroups = (groupRows || [])
+      .sort((a, b) => a.sort_order - b.sort_order)
+      .map(groupRowToBlock);
 
     res.json({
       curriculum: {
@@ -3944,17 +4058,6 @@ app.post("/registrations", async (req, res) => {
       }
     }
 
-    const { error: deleteError } = await supabase
-      .from(REGISTRATIONS_TABLE)
-      .delete()
-      .eq("student_id", studentId);
-    if (deleteError) return res.status(500).json({ error: deleteError.message });
-
-    if (courseList.length === 0) {
-      await resetPlannerApproval(studentId, false);
-      return res.json({ registrations: [], approval: null });
-    }
-
     const savedAt = new Date().toISOString();
     const rows = courseList.map((course) => ({
       student_id: studentId,
@@ -3962,12 +4065,18 @@ app.post("/registrations", async (req, res) => {
       saved_at: savedAt,
     }));
 
-    const { data, error } = await supabase
-      .from(REGISTRATIONS_TABLE)
-      .insert(rows)
-      .select();
+    const { data, error } = await replaceRowsSafely(
+      REGISTRATIONS_TABLE,
+      (query) => query.eq("student_id", studentId),
+      rows
+    );
 
     if (error) return res.status(500).json({ error: error.message });
+
+    if (courseList.length === 0) {
+      await resetPlannerApproval(studentId, false);
+      return res.json({ registrations: [], approval: null });
+    }
 
     // A newly saved plan always goes back to the advisor for review.
     const approval = await resetPlannerApproval(studentId, true);
@@ -4082,22 +4191,17 @@ app.post("/requested-courses", async (req, res) => {
       ).values()
     );
 
-    const { error: deleteError } = await supabase
-      .from(REQUESTED_COURSES_TABLE)
-      .delete()
-      .eq("student_id", studentId);
-    if (deleteError) return res.status(500).json({ error: deleteError.message });
-
-    if (courseList.length === 0) return res.json({ requestedCourses: [] });
-
     const rows = courseList.map((course) => ({ student_id: studentId, ...course }));
 
-    const { data, error } = await supabase
-      .from(REQUESTED_COURSES_TABLE)
-      .insert(rows)
-      .select();
+    const { data, error } = await replaceRowsSafely(
+      REQUESTED_COURSES_TABLE,
+      (query) => query.eq("student_id", studentId),
+      rows
+    );
 
     if (error) return res.status(500).json({ error: error.message });
+
+    if (courseList.length === 0) return res.json({ requestedCourses: [] });
 
     res.status(201).json({ requestedCourses: data || [] });
   } catch (error) {
