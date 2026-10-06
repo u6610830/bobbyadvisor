@@ -18,6 +18,7 @@ import { supabase } from "../utils/supabaseClient.js";
 import { syncAdvisorsFromServer } from "../data/mockAdvisors.js";
 import { isMsalConfigured, loginRequest } from "../msalConfig.js";
 import "./Login.css";
+import { validatePasswordStrength, PASSWORD_HINT } from "../utils/password.js";
 
 const API_BASE = import.meta.env.VITE_API_BASE || (import.meta.env.PROD ? "https://api.bobbyadvisor.org" : "http://localhost:3001");
 
@@ -228,8 +229,9 @@ function Login({ onLogin, onGoToRegister, initialStudentId = "" }) {
 
   const handleResetPassword = async (event) => {
     event.preventDefault();
-    if (newPassword.length < 6) {
-      setError("Password must contain at least 6 characters.");
+    const passwordProblem = validatePasswordStrength(newPassword);
+    if (passwordProblem) {
+      setError(passwordProblem);
       return;
     }
     if (newPassword !== confirmPassword) {
@@ -485,7 +487,7 @@ function Login({ onLogin, onGoToRegister, initialStudentId = "" }) {
             <h2 className="login-form-title">Choose a new password</h2>
             <p className="login-form-help">
               {resetReady
-                ? "Enter a new password with at least 6 characters."
+                ? `Enter a new password. ${PASSWORD_HINT}`
                 : "Preparing your secure password-reset link..."}
             </p>
             <label htmlFor="new-password">New password:</label>

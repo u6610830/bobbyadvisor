@@ -14,3 +14,10 @@ export const PREREQ_GROUPS = [
 export function getPrereqGroupLabel(groupId) {
   return PREREQ_GROUPS.find((g) => g.id === groupId)?.label ?? groupId;
 }
+
+export function prereqTextKey(groupId) {
+  return `${groupId}_text`;
+}
+export function getPrereqGroups() {
+  return PREREQ_GROUPS;
+}

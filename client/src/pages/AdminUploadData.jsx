@@ -16,6 +16,7 @@ import {
   collectGroupNames,
 } from "../utils/curriculumExcel.js";
 import "./AdminUploadData.css";
+import UnsavedNotice from "../components/UnsavedNotice.jsx";
 
 const API_BASE = import.meta.env.VITE_API_BASE || (import.meta.env.PROD ? "https://api.bobbyadvisor.org" : "http://localhost:3001");
 
@@ -106,7 +107,7 @@ function GroupSearchInput({
 // cell, backed by the Courses database table (same /courses endpoint the
 // Admin All Courses and Pre-Require pages already use) — pick a
 // suggestion and both the code and name cells fill in together.
-function CourseSearchInput({ value, allCourses, onChange, onSelect, placeholder = "CSX1001" }) {
+function CourseSearchInput({ value, allCourses, onChange, onSelect, placeholder = "Course Code" }) {
   const [open, setOpen] = useState(false);
   const wrapRef = useRef(null);
 
@@ -195,6 +196,9 @@ function AdminUploadData() {
   );
 
   // Excel upload state
+  // JSON of the draft as last loaded/saved. null = a brand-new curriculum
+  // that has never been saved, so it always counts as unsaved.
+  const [baselineJson, setBaselineJson] = useState(() => (draft ? JSON.stringify(draft) : null));
   const [workbook, setWorkbook] = useState(null);
   const [sheetNames, setSheetNames] = useState([]);
   const [selectedSheet, setSelectedSheet] = useState("");
@@ -210,7 +214,9 @@ function AdminUploadData() {
 
   const loadYear = (year) => {
     setSelectedYear(year);
-    setDraft(curricula[year] ? { ...curricula[year], groups: getCurriculumGroups(curricula[year]) } : null);
+    const nextDraft = curricula[year] ? { ...curricula[year], groups: getCurriculumGroups(curricula[year]) } : null;
+    setDraft(nextDraft);
+    setBaselineJson(nextDraft ? JSON.stringify(nextDraft) : null);
     setMessage("");
     resetExcelState();
   };
@@ -241,6 +247,7 @@ function AdminUploadData() {
     };
     setSelectedYear(y);
     setDraft(blank);
+    setBaselineJson(null);
     setMessage("");
     resetExcelState();
   };
@@ -439,6 +446,7 @@ function AdminUploadData() {
         groups: cleanedGroups,
       });
       refresh();
+      setBaselineJson(JSON.stringify(draft));
       setMessage(`Saved curriculum requirements for ${draft.year}.`);
     } catch (err) {
       console.error("Failed to save curriculum to database:", err);
@@ -727,7 +735,7 @@ function AdminUploadData() {
                               allCourses={allCourses}
                               onChange={(val) => updateBlockCourse(block.id, idx, "code", val)}
                               onSelect={(c) => selectCourseForRow(block.id, idx, c)}
-                              placeholder="CSX1001"
+                              placeholder="Course Code"
                             />
                           </td>
                           <td>
@@ -736,7 +744,7 @@ function AdminUploadData() {
                               allCourses={allCourses}
                               onChange={(val) => updateBlockCourse(block.id, idx, "name", val)}
                               onSelect={(c) => selectCourseForRow(block.id, idx, c)}
-                              placeholder="Introduction to Programming"
+                              placeholder="Course Name"
                             />
                           </td>
                           <td className="upload-data-credits-cell">
@@ -785,6 +793,7 @@ function AdminUploadData() {
                 <Save size={16} strokeWidth={2} />
                 <span>{saving ? "Saving…" : "Save"}</span>
               </button>
+              <UnsavedNotice show={!saving && (baselineJson === null || JSON.stringify(draft) !== baselineJson)} />
             </>
           )}
         </div>

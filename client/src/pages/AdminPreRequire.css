@@ -152,16 +152,21 @@
 
 /* Row action buttons */
 
-.prereq-admin-row-actions {
-  display: flex;
-  gap: 6px;
-  align-items: flex-start;
+/* Kept as a normal table cell (not display:flex) so the buttons centre in
+   the column — under the Add Batch Code button — instead of hugging the
+   right edge of the purple header. */
+.prereq-admin-table td.prereq-admin-row-actions {
+  width: 190px;
   padding-top: 10px;
+  text-align: center;
+  white-space: nowrap;
 }
 
 .prereq-admin-save,
 .prereq-admin-delete {
-  display: flex;
+  display: inline-flex;
+  margin: 0 3px;
+  vertical-align: top;
   align-items: center;
   justify-content: center;
   width: 32px;
@@ -313,7 +318,7 @@
   font-family: inherit;
 }
 
-/* Textarea variant for g1, g2 and g3 columns */
+/* Textarea variant for the batch-group columns */
 
 .prereq-ta-wrap textarea {
   width: 100%;
@@ -369,4 +374,117 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* Add Batch Code (e.g. 671) — lives in the purple table header, in the
+   empty column above the Save / Delete buttons */
+.prereq-admin-table th.prereq-admin-th-actions {
+  min-width: 190px;
+  vertical-align: middle;
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+.prereq-admin-addgroup {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+}
+
+.prereq-admin-addgroup input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 7px 10px;
+  font-family: inherit;
+  font-size: 13.5px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: #FDE68A;
+  color: #1F2937;
+  outline: none;
+}
+
+.prereq-admin-addgroup input::placeholder {
+  color: #6B5B1A;
+  opacity: 1;
+}
+
+.prereq-admin-addgroup input:focus {
+  background: #FEF3C7;
+  border-color: #FACC15;
+  box-shadow: 0 0 0 2px rgba(250, 204, 21, 0.45);
+}
+
+/* Soft-yellow pill buttons so they stand out on the purple header */
+.prereq-admin-addgroup .prereq-admin-add {
+  align-self: stretch;
+  justify-content: center;
+  gap: 6px;
+  background: #FDE68A;
+  border: 1px solid #FDE68A;
+  color: #3B2F05;
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1.3;
+  text-align: left;
+  text-transform: none;
+  letter-spacing: normal;
+  padding: 7px 12px;
+  border-radius: 10px;
+}
+
+.prereq-admin-addgroup .prereq-admin-add:hover {
+  background: #FCD34D;
+  color: #3B2F05;
+  border-color: #FCD34D;
+}
+
+.prereq-admin-addgroup .prereq-admin-add:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.prereq-admin-addgroup-cancel {
+  padding: 4px 8px;
+  border: none;
+  background: transparent;
+  color: #FFFFFF;
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 500;
+  text-transform: none;
+  letter-spacing: normal;
+  cursor: pointer;
+}
+
+.prereq-admin-addgroup-cancel:hover {
+  background: rgba(255, 255, 255, 0.2);
+  color: #FFFFFF;
+  transform: none;
+}
+
+/* ✕ on the header of a batch group the admin added */
+.prereq-admin-table th {
+  position: relative;
+}
+
+.prereq-admin-th-remove {
+  margin-left: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  vertical-align: middle;
+  border: none;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.2);
+  color: #ffffff;
+  cursor: pointer;
+}
+
+.prereq-admin-th-remove:hover {
+  background: rgba(255, 255, 255, 0.4);
 }

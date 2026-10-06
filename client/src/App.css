@@ -24,3 +24,74 @@
     padding: 20px;
   }
 }
+
+/* Advisor (instructor) portal — mint green theme.
+   Overrides the shared yellow tokens only inside the advisor shell. */
+.theme-advisor {
+  --primary: #5EC9A0;
+  --primary-hover: #2F8F6B;
+  --accent-bg: #DDF6EB;
+  --accent-border: rgba(94, 201, 160, 0.5);
+  --code-bg: #DDF6EB;
+  /* Shared "role" tokens read by Registrations / Requested Courses / summary pills. */
+  --role-primary: #5EC9A0;
+  --role-primary-hover: #2F8F6B;
+  --role-accent-bg: #DDF6EB;
+  --role-accent-border: rgba(94, 201, 160, 0.4);
+  background: var(--bg);
+}
+
+.theme-advisor .upload-area:hover {
+  background: #F2FBF7;
+}
+
+/* Advisor > Course Registrations & Requested Courses:
+   everything that shows "who registered / who requested" is mint green. */
+.theme-advisor .reg-admin-count,
+.theme-advisor .reg-admin-section-count,
+.theme-advisor .reg-admin-section-detail {
+  color: var(--primary-hover);
+}
+
+.theme-advisor .reg-admin-count {
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--accent-bg);
+}
+
+.theme-advisor .reg-admin-section-row:hover {
+  background: var(--accent-bg);
+}
+
+.theme-advisor .reg-admin-student-list {
+  border-color: var(--primary);
+}
+
+.theme-advisor .reg-admin-student-list-head {
+  background: var(--primary);
+  color: #134E3A;
+  border-bottom-color: var(--primary);
+}
+
+.theme-advisor .reg-admin-student-id {
+  color: var(--primary-hover);
+}
+
+.theme-advisor .reg-admin-student-num {
+  color: var(--primary);
+}
+
+.theme-advisor .reg-admin-student-name {
+  color: var(--text-h);
+}
+
+.theme-advisor .reg-admin-refresh:hover,
+.theme-advisor .hdc-refresh:hover {
+  background: var(--accent-bg);
+  color: var(--primary-hover);
+}
+
+.theme-advisor .admin-summary-title-pill {
+  color: var(--primary-hover);
+  font-weight: 600;
+}

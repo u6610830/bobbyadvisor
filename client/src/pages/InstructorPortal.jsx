@@ -12,11 +12,13 @@ import Topbar from "../layout/Topbar.jsx";
 import InstructorStudentList from "./InstructorStudentList.jsx";
 import InstructorStudentAnalytics from "./InstructorStudentAnalytics.jsx";
 import InstructorStudentChat from "./InstructorStudentChat.jsx";
+import InstructorAiChat from "./InstructorAiChat.jsx";
 import AdminCourseRegistrations from "./AdminCourseRegistrations.jsx";
 import RequestedCourses from "./RequestedCourses.jsx";
 import AccountSettings from "./AccountSettings.jsx";
 
 import { getAdvisorById } from "../data/mockAdvisors.js";
+import logo from "../assets/logo.png";
 
 const INSTRUCTOR_NAV_ITEMS = [
   {
@@ -33,6 +35,21 @@ const INSTRUCTOR_NAV_ITEMS = [
     id: "requested-courses",
     label: "Requested Courses",
     icon: TrendingUp,
+  },
+  {
+    id: "ai-chat",
+    label: "AI Chat",
+    icon: () => (
+      <img
+        src={logo}
+        alt="Bobby Advisor"
+        style={{
+          width: "20px",
+          height: "20px",
+          objectFit: "contain",
+        }}
+      />
+    ),
   },
   {
     id: "settings",
@@ -145,6 +162,11 @@ function InstructorPortal({
       );
     }
 
+    // AI Chat — ask Bobby about this advisor's students
+    if (activePage === "ai-chat") {
+      return <InstructorAiChat advisorId={userId} />;
+    }
+
     // Course Registrations
     if (activePage === "registrations") {
       return (
@@ -186,7 +208,7 @@ function InstructorPortal({
   };
 
   return (
-    <div className="app-shell">
+    <div className="app-shell theme-advisor">
       {/* -----------------------------------------
           Advisor Sidebar
       ------------------------------------------ */}

@@ -221,6 +221,8 @@
 .plan-gen-tag.cat-major_elective { background: #EDE9FE; color: #5B21B6; }
 .plan-gen-tag.cat-gen_ed { background: #DCFCE7; color: #166534; }
 .plan-gen-tag.cat-free_elective { background: #FCE7F3; color: #9D174D; }
+.plan-gen-tag.cat-senior_project { background: #E0F2FE; color: #075985; }
+.plan-gen-tag.stage-senior_project { background: #FEF3C7; color: #92400E; font-weight: 700; }
 .plan-gen-tag.stage-required { background: #FFF3C4; color: #92400E; }
 .plan-gen-tag.stage-gateway { background: #FFEDD5; color: #9A3412; }
 .plan-gen-tag.not-open { background: #FEF3C7; color: #92400E; }
@@ -268,4 +270,60 @@
   .plan-gen-card { padding: 20px; }
   .plan-gen-list li { flex-direction: column; gap: 8px; }
   .plan-gen-actions { align-self: flex-end; }
+}
+.plan-gen-schedule {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  flex: 1 1 100%;
+}
+
+.plan-gen-days,
+.plan-gen-times {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.plan-gen-day {
+  min-width: 52px;
+  padding: 7px 12px;
+  border: 1.5px solid var(--border);
+  border-radius: 12px;
+  background: var(--card);
+  color: var(--text-h);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.plan-gen-day.on {
+  background: var(--accent-bg);
+  border-color: var(--primary);
+  color: var(--primary-hover);
+}
+
+.plan-gen-time {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  border: 1.5px solid var(--border);
+  border-radius: 12px;
+  font-size: 13px;
+  color: var(--text-h);
+  cursor: pointer;
+}
+
+.plan-gen-time.on {
+  background: var(--accent-bg);
+  border-color: var(--primary);
+}
+
+.plan-gen-strict {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-muted);
 }

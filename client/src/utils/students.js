@@ -1,3 +1,4 @@
+import { validatePasswordStrength, PASSWORD_RULE_TEXT } from "./password.js";
 // Manages student self-registration (Register page) and exposes a
 // combined roster (mock demo students + real registrations) for the
 // Admin pages. Swap for a real API once the backend exists — the shape
@@ -44,8 +45,8 @@ export function registerStudent({ studentId, fullName, password, curriculumYear,
     reasons.push("Please enter your full name.");
   }
 
-  if (!password || password.trim().length < 6) {
-    reasons.push("Password must be at least 6 characters.");
+  if (!password || validatePasswordStrength(password)) {
+    reasons.push(PASSWORD_RULE_TEXT);
   }
 
   if (!curriculumYear) {

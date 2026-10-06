@@ -16,6 +16,7 @@ import { getCurrentPrereqGroupId } from "../utils/prereqGroup.js";
 
 import "./Register.css";
 import logo from "../assets/logo.png";
+import { validatePasswordStrength, PASSWORD_HINT } from "../utils/password.js";
 
 const API_BASE =
   import.meta.env.VITE_API_BASE || (import.meta.env.PROD ? "https://api.bobbyadvisor.org" : "http://localhost:3001");
@@ -101,8 +102,9 @@ function Register({ onBackToLogin, microsoftAccount = null, onMicrosoftRegistere
       return;
     }
 
-    if (password.length < 6) {
-      setReasons(["Password must contain at least 6 characters."]);
+    const passwordProblem = validatePasswordStrength(password);
+    if (passwordProblem) {
+      setReasons([passwordProblem]);
       return;
     }
 
@@ -315,7 +317,7 @@ function Register({ onBackToLogin, microsoftAccount = null, onMicrosoftRegistere
                 <input
                   id="reg-password"
                   type="password"
-                  placeholder="At least 6 characters"
+                  placeholder="Create a password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                 />
@@ -340,6 +342,8 @@ function Register({ onBackToLogin, microsoftAccount = null, onMicrosoftRegistere
               </div>
             </div>
           </div>
+
+          <p className="register-password-hint">{PASSWORD_HINT}</p>
 
           {isMicrosoftRegistration && (
             <p className="register-hint">

@@ -7,7 +7,15 @@ import { createClient } from "@supabase/supabase-js";
 import supabase from "./supabase.js";
 import bcrypt from "bcryptjs";
 dotenv.config();
-import { httpServerHandler } from "cloudflare:node";
+
+// "cloudflare:node" only exists inside the Cloudflare Workers runtime, so a
+// static import crashes plain `node server.js` (npm start / npm run dev).
+// Detect Workers and only load it there.
+const IS_CLOUDFLARE_WORKER =
+  typeof navigator !== "undefined" && navigator.userAgent === "Cloudflare-Workers";
+const httpServerHandler = IS_CLOUDFLARE_WORKER
+  ? (await import("cloudflare:node")).httpServerHandler
+  : null;
 
 const app = express();
 
@@ -140,6 +148,24 @@ async function resolveRegistrationCurriculumYear(studentId) {
   if (digits.length < 2) return null;
   const beYear = Number(digits.slice(0, 2));
   return Number.isFinite(beYear) ? String(1957 + beYear) : null;
+}
+
+// One password rule for every place a password is created or changed
+// (student register, change password for student / advisor / admin).
+// Returns an error message, or null when the password is acceptable.
+const PASSWORD_RULE_TEXT =
+  "Password must be at least 8 characters and include at least 1 uppercase letter, 1 lowercase letter and 1 number.";
+function validatePasswordStrength(password) {
+  const value = String(password || "");
+  if (
+    value.length < 8 ||
+    !/[A-Z]/.test(value) ||
+    !/[a-z]/.test(value) ||
+    !/[0-9]/.test(value)
+  ) {
+    return PASSWORD_RULE_TEXT;
+  }
+  return null;
 }
 
 function createAuthClient() {
@@ -356,10 +382,9 @@ app.post("/students/microsoft", async (req, res) => {
     // still ask for a password here so the account can also sign in the
     // normal Student ID + password way afterward, not only via the
     // Microsoft button.
-    if (password.length < 6) {
-      return res.status(400).json({
-        error: "Password must contain at least 6 characters.",
-      });
+    const passwordProblem = validatePasswordStrength(password);
+    if (passwordProblem) {
+      return res.status(400).json({ error: passwordProblem });
     }
 
     const { data: existing, error: existingError } = await supabase
@@ -461,10 +486,15 @@ app.post("/students", async (req, res) => {
     const studentId = email.split("@")[0].toUpperCase();
     const curriculumYear = await resolveRegistrationCurriculumYear(studentId);
 
-    if (!name || !email || password.length < 6) {
+    if (!name || !email || !password) {
       return res.status(400).json({
-        error: "Name, email, and a password of at least 6 characters are required.",
+        error: "Name, email and password are required.",
       });
+    }
+
+    const passwordProblem = validatePasswordStrength(password);
+    if (passwordProblem) {
+      return res.status(400).json({ error: passwordProblem });
     }
 
     if (!curriculumYear) {
@@ -621,6 +651,71 @@ app.post("/auth/resend-verification", async (req, res) => {
     return res.json({ message: "Verification email sent. Check your inbox and spam folder." });
   } catch (error) {
     console.error("POST /auth/resend-verification error:", error);
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+// Student changes their own password from Profile. The current password is
+// verified the same way /login/student does it (Supabase Auth first, then the
+// legacy bcrypt hash), then the new one is saved to whichever store applies.
+app.put("/students/:id/password", async (req, res) => {
+  try {
+    const currentPassword = String(req.body.currentPassword || "");
+    const newPassword = String(req.body.newPassword || "");
+
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ error: "Current and new password are both required." });
+    }
+    const newPasswordProblem = validatePasswordStrength(newPassword);
+    if (newPasswordProblem) {
+      return res.status(400).json({ error: newPasswordProblem });
+    }
+    if (newPassword === currentPassword) {
+      return res.status(400).json({ error: "New password must be different from the current password." });
+    }
+
+    const student = await findStudentForAuth(req.params.id);
+    if (!student) return res.status(404).json({ error: "Student not found." });
+
+    let currentValid = false;
+    if (student.email) {
+      const authClient = createAuthClient();
+      const { data: authData, error: authError } = await authClient.auth.signInWithPassword({
+        email: student.email,
+        password: currentPassword,
+      });
+      if (!authError && authData.user) currentValid = true;
+    }
+    if (!currentValid && student.password_hash) {
+      currentValid = await bcrypt.compare(currentPassword, student.password_hash);
+    }
+    if (!currentValid) {
+      return res.status(401).json({ error: "Current password is incorrect." });
+    }
+
+    if (student.auth_user_id) {
+      const { error: updateError } = await supabase.auth.admin.updateUserById(
+        student.auth_user_id,
+        { password: newPassword }
+      );
+      if (updateError) return res.status(400).json({ error: updateError.message });
+    }
+
+    // Keep the legacy hash in sync so either sign-in path uses the new password.
+    if (student.password_hash || !student.auth_user_id) {
+      const password_hash = await bcrypt.hash(newPassword, 10);
+      const { error: hashError } = await supabase
+        .from("students")
+        .update({ password_hash })
+        .eq("student_id", student.student_id);
+      if (hashError && !student.auth_user_id) {
+        return res.status(500).json({ error: hashError.message });
+      }
+    }
+
+    return res.json({ message: "Password updated." });
+  } catch (error) {
+    console.error("PUT /students/:id/password error:", error);
     return res.status(500).json({ error: error.message });
   }
 });
@@ -863,13 +958,123 @@ app.put("/grades/:id", async (req, res) => {
 
     if (error) return res.status(500).json({ error: error.message });
 
-    res.json({ grade: data });
+
+      res.json({ grade: data });
+
+} catch (error) {
+
+  console.error("PUT /grades/:id error:", error);
+
+  res.status(500).json({ error: error.message });
+
+}
+
+});
+
+
+// Add one grade manually
+app.post("/grades", async (req, res) => {
+  try {
+    const {
+      student_id,
+      course_code,
+      course_name,
+      grade,
+      credits,
+      Semester,
+    } = req.body;
+
+    if (!student_id) {
+      return res.status(400).json({ error: "Student ID is required." });
+    }
+
+    if (!course_code) {
+      return res.status(400).json({ error: "Course code is required." });
+    }
+
+    if (!grade) {
+      return res.status(400).json({ error: "Grade is required." });
+    }
+
+    if (!Semester) {
+      return res.status(400).json({ error: "Semester is required." });
+    }
+
+    const numCredits = Number(credits);
+
+    if (Number.isNaN(numCredits) || numCredits < 0) {
+      return res.status(400).json({
+        error: "Credits must be a non-negative number.",
+      });
+    }
+
+    const { data, error } = await supabase
+      .from("grades")
+      .insert({
+        student_id: String(student_id).trim(),
+        course_code: String(course_code).trim().toUpperCase(),
+        course_name: String(course_name || "").trim(),
+        grade: String(grade).trim().toUpperCase(),
+        credits: numCredits,
+        Semester: String(Semester).trim(),
+      })
+      .select()
+      .single();
+
+      if (error) {
+      console.error("POST /grades Supabase error:", error);
+      if (error.code === "23505") {
+        return res.status(409).json({
+          error: "You already have this course in that semester.",
+        });
+      }
+      return res.status(500).json({ error: error.message });
+    }
+    res.status(201).json(data);
   } catch (error) {
-    console.error("PUT /grades/:id error:", error);
-    res.status(500).json({ error: error.message });
+    console.error("POST /grades error:", error);
+
+    res.status(500).json({
+      error: error.message,
+    });
   }
 });
 
+
+// Delete one grade
+app.delete("/grades/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!id) {
+      return res.status(400).json({
+        error: "Grade ID is required.",
+      });
+    }
+
+    const { error } = await supabase
+      .from("grades")
+      .delete()
+      .eq("id", id);
+
+    if (error) {
+      console.error("DELETE /grades/:id Supabase error:", error);
+      return res.status(500).json({
+        error: error.message,
+      });
+    }
+
+    res.json({
+      message: "Grade deleted successfully.",
+    });
+  } catch (error) {
+    console.error("DELETE /grades/:id error:", error);
+
+    res.status(500).json({
+      error: error.message,
+    });
+  }
+});
 // ------------------------------------------------
 // STUDENT: self-added elective courses / status overrides (Graduation Check)
 // ------------------------------------------------
@@ -2343,6 +2548,121 @@ app.get("/chat/bobby/:studentId", async (req, res) => {
   }
 });
 
+// ------------------------------------------------
+// Advisor AI chat helpers
+// ------------------------------------------------
+// Credit / GPA progress for ONE student, using the same rules as the
+// student's Graduation Check and the Admin Dashboard: A..C and S always
+// pass; C- and D pass except in courses Admin marked "Min C"; F/W/WF/R/I
+// never pass; each course counts once.
+function computeStudentProgress(student, studentGrades, ctx) {
+  const COMPLETED = new Set(["A", "A-", "B+", "B", "B-", "C+", "C", "S"]);
+  const NEEDS_MIN_C = new Set(["C-", "D"]);
+  const POINTS = { A: 4.0, "A-": 3.75, "B+": 3.25, B: 3.0, "B-": 2.75, "C+": 2.25, C: 2.0, "C-": 1.75, D: 1.0, F: 0.0 };
+
+  let year = String(student.curriculum_year || "").trim();
+  if (!ctx.totalByYear.has(year)) year = deriveCurriculumYearFromId(student.student_id, ctx.availableYears) || "";
+  const totalRequired = ctx.totalByYear.get(year) || 0;
+  const minCRules = ctx.minCRulesByYear.get(year) || [];
+
+  const gradeOf = (g) => String(g.grade || "").trim().toUpperCase();
+  const passes = (code, grade) =>
+    COMPLETED.has(grade) || (NEEDS_MIN_C.has(grade) && !minCRules.some((rule) => courseMatchesRule(code, rule)));
+
+  const byCode = new Map();
+  studentGrades.forEach((g) => {
+    const code = normalizeCourseCode(g.course_code) || String(g.course_code || "").trim().toUpperCase();
+    if (!code) return;
+    if (!byCode.has(code)) byCode.set(code, []);
+    byCode.get(code).push(g);
+  });
+
+  const passed = new Map(); // code -> credits
+  const notCompleted = [];
+  const gradeList = [];
+  let gpaPoints = 0;
+  let gpaCredits = 0;
+  byCode.forEach((attempts, code) => {
+    const passing = attempts.filter((g) => passes(code, gradeOf(g)));
+    const final = passing.length ? passing[passing.length - 1] : attempts[attempts.length - 1];
+    const grade = gradeOf(final);
+    gradeList.push(`${code} ${grade || "-"}`);
+    if (passing.length) {
+      passed.set(code, Math.max(...passing.map((g) => Number(g.credits) || 0)));
+    } else {
+      notCompleted.push({
+        code,
+        grade: grade || "-",
+        reason: NEEDS_MIN_C.has(grade) ? "needs at least a C (Admin rule) — must retake" : grade === "F" ? "failed — must retake" : grade === "I" ? "incomplete" : "withdrawn / no passing grade",
+      });
+    }
+    const credits = Number(final.credits);
+    if (POINTS[grade] !== undefined && grade !== "F" && Number.isFinite(credits) && credits > 0) {
+      gpaPoints += POINTS[grade] * credits;
+      gpaCredits += credits;
+    }
+  });
+
+  const passedCodes = [...passed.keys()];
+  const earned = [...passed.values()].reduce((a, b) => a + b, 0);
+  const gpa = gpaCredits ? Math.round((gpaPoints / gpaCredits + 1e-9) * 100) / 100 : null;
+
+  // Requirement categories (honours the student's chosen elective group).
+  const relevant = (ctx.groupsByYear.get(year) || []).filter((row) => {
+    if (!row.is_choose_one_group) return true;
+    return student.elective_group && row.label === student.elective_group;
+  });
+  let groupShortfall = 0;
+  const unmetCategories = [];
+  relevant.forEach((row) => {
+    const block = groupRowToBlock(row);
+    const seen = new Map();
+    (block.courses || []).forEach((rule) => {
+      const key = String(rule.code || "").toUpperCase().replace(/\s+/g, "");
+      if (key && !seen.has(key)) seen.set(key, rule);
+    });
+    const rules = [...seen.values()];
+    const matching = passedCodes.filter((code) => rules.some((rule) => courseMatchesRule(code, rule.code)));
+    const done = matching.reduce((sum, code) => sum + (passed.get(code) || 0), 0);
+    const required = Number(block.creditsRequired) || 0;
+    const shortfall = Math.max(required - done, 0);
+    groupShortfall += shortfall;
+    const missing = block.mode === "choose"
+      ? []
+      : rules.filter((rule) => !passedCodes.some((code) => courseMatchesRule(code, rule.code))).map((rule) => rule.code);
+    const missingCount = block.mode === "choose"
+      ? Math.max((Number(block.chooseCount) || 0) - matching.length, 0)
+      : missing.length;
+    if (shortfall > 0 || missingCount > 0) {
+      unmetCategories.push({
+        category: block.label || block.group || "Requirement",
+        remaining_credits: shortfall,
+        missing_courses: missing,
+      });
+    }
+  });
+
+  const remaining = totalRequired ? Math.max(totalRequired - earned, groupShortfall) : null;
+  let termsLeft = null;
+  if (totalRequired && studentGrades.length) {
+    termsLeft = Math.ceil(remaining / DASHBOARD_CREDITS_PER_TERM);
+    if (termsLeft === 0 && unmetCategories.length > 0) termsLeft = 1;
+  }
+
+  return {
+    year: year || null,
+    totalRequired,
+    earned,
+    remaining,
+    gpa,
+    termsLeft,
+    notCompleted,
+    unmetCategories,
+    gradeList: gradeList.sort(),
+    status: !totalRequired ? "no_curriculum" : !studentGrades.length ? "no_grades" : "ok",
+  };
+}
+
 app.post("/chat/bobby", async (req, res) => {
   try {
     const studentId = String(req.body.student_id || "").trim().toUpperCase();
@@ -2368,7 +2688,7 @@ app.post("/chat/bobby", async (req, res) => {
         .ilike("student_id", studentId)
         .maybeSingle(),
       supabase.from("grades").select("course_code, course_name, grade, credits, Semester").ilike("student_id", studentId),
-      supabase.from(REGISTRATIONS_TABLE).select("course_code, Semester").ilike("student_id", studentId),
+      supabase.from(REGISTRATIONS_TABLE).select("course_code").ilike("student_id", studentId),
       supabase.from(REQUESTED_COURSES_TABLE).select("course_code, course_name").ilike("student_id", studentId),
       supabase.from(CURRICULA_TABLE).select("*"),
       supabase.from(CURRICULUM_GROUPS_TABLE).select("*").order("sort_order", { ascending: true }),
@@ -2401,25 +2721,95 @@ app.post("/chat/bobby", async (req, res) => {
     }
     const groupRows = (curriculumGroups || []).filter((row) => String(row.curriculum_year).trim() === curriculumYear);
 
-    // Same passing-grade set the client's own graduation logic uses —
-    // F/W/WF/I don't count as completed credit.
-    const NON_PASSING_GRADES = new Set(["F", "W", "WF", "I", ""]);
-    const completedCourses = (grades || []).filter(
-      (g) => !NON_PASSING_GRADES.has(String(g.grade || "").trim().toUpperCase())
-    );
+    // Mirror the client's Graduation Check / Dashboard rules exactly, so
+    // Bobby's numbers always match what the student sees on those pages:
+    //  - A, A-, B+, B, B-, C+, C and S always count as completed.
+    //  - C- and D count as completed for ordinary courses, BUT NOT for a
+    //    course Admin ticked "Min C" on (Upload Table Data > minGradeC) —
+    //    those need at least a C, otherwise the student must retake.
+    //  - F, W, R, I and blank never count.
+    //  - One effective attempt per course: a passing retake replaces earlier
+    //    attempts (latest passing attempt wins), so credits never count twice.
+    const COMPLETED_GRADES = new Set(["A", "A-", "B+", "B", "B-", "C+", "C", "S"]);
+    const PASSING_WITHOUT_MIN_C = new Set(["C-", "D"]);
+    const GRADE_POINTS = { A: 4.0, "A-": 3.75, "B+": 3.25, B: 3.0, "B-": 2.75, "C+": 2.25, C: 2.0, "C-": 1.75, D: 1.0, F: 0.0 };
+    const gradeOf = (g) => String(g.grade || "").trim().toUpperCase();
+    const semesterOrder = (semester) => {
+      const [term, year] = String(semester || "0/0").split("/").map(Number);
+      return (Number.isFinite(year) ? year : 0) * 10 + (Number.isFinite(term) ? term : 0);
+    };
+
+    // Course rules (codes or ranges) Admin flagged as "requires at least C".
+    const minGradeCRules = groupRows
+      .flatMap((row) => (Array.isArray(row.courses) ? row.courses : []))
+      .filter((course) => course && course.minGradeC)
+      .map((course) => course.code);
+    const requiresMinGradeC = (courseCode) =>
+      minGradeCRules.some((rule) => courseMatchesRule(courseCode, rule));
+
+    const passesForCurriculum = (g) => {
+      const grade = gradeOf(g);
+      if (COMPLETED_GRADES.has(grade)) return true;
+      if (PASSING_WITHOUT_MIN_C.has(grade)) return !requiresMinGradeC(g.course_code);
+      return false;
+    };
+
+    const attemptsByCode = new Map();
+    (grades || []).forEach((g) => {
+      const code = normalizeCourseCode(g.course_code) || String(g.course_code || "").trim().toUpperCase();
+      if (!code) return;
+      if (!attemptsByCode.has(code)) attemptsByCode.set(code, []);
+      attemptsByCode.get(code).push(g);
+    });
+    const finalAttempts = Array.from(attemptsByCode.values()).map((attempts) => {
+      const sorted = [...attempts].sort((a, b) => semesterOrder(a.Semester) - semesterOrder(b.Semester));
+      const latestPassing = [...sorted].reverse().find((g) => passesForCurriculum(g));
+      return latestPassing || sorted[sorted.length - 1];
+    });
+
+    const completedCourses = finalAttempts.filter((g) => passesForCurriculum(g));
     const totalCreditsEarned = completedCourses.reduce((sum, g) => sum + (Number(g.credits) || 0), 0);
 
-    // One row per course code (a retake would otherwise count its credits
-    // twice) — keep whichever attempt has the higher credit value, in
-    // case an older row has a blank credits field.
+    // Courses whose final attempt did not earn credit, with the reason, so
+    // Bobby can explain it.
+    const notCompletedCourses = finalAttempts
+      .filter((g) => !passesForCurriculum(g))
+      .map((g) => {
+        const grade = gradeOf(g);
+        const belowMinC = PASSING_WITHOUT_MIN_C.has(grade) && requiresMinGradeC(g.course_code);
+        return {
+          code: g.course_code,
+          name: g.course_name,
+          grade: g.grade,
+          credits: g.credits,
+          semester: g.Semester,
+          requires_min_grade_c: requiresMinGradeC(g.course_code),
+          needs_retake: belowMinC || grade === "F" || grade === "W" || grade === "R",
+          reason: belowMinC
+            ? "Admin requires at least a C for this course"
+            : grade === "F" ? "Failed"
+            : grade === "W" || grade === "R" ? "Withdrawn"
+            : grade === "I" ? "Incomplete"
+            : "No passing grade recorded",
+        };
+      });
+
+    // Cumulative GPA, same rule as the client: S/W/R/I/F don't count.
+    let gpaPoints = 0;
+    let gpaCredits = 0;
+    finalAttempts.forEach((g) => {
+      const grade = gradeOf(g);
+      const credits = Number(g.credits);
+      if (GRADE_POINTS[grade] === undefined || grade === "F" || !Number.isFinite(credits) || credits <= 0) return;
+      gpaPoints += GRADE_POINTS[grade] * credits;
+      gpaCredits += credits;
+    });
+    const gpa = gpaCredits ? Math.round((gpaPoints / gpaCredits + 1e-9) * 100) / 100 : 0;
+
     const passedByCode = new Map();
     completedCourses.forEach((g) => {
       const code = normalizeCourseCode(g.course_code);
-      if (!code) return;
-      const existing = passedByCode.get(code);
-      if (!existing || (Number(g.credits) || 0) > (Number(existing.credits) || 0)) {
-        passedByCode.set(code, g);
-      }
+      if (code && !passedByCode.has(code)) passedByCode.set(code, g);
     });
     const passedCodes = Array.from(passedByCode.keys());
 
@@ -2438,7 +2828,13 @@ app.post("/chat/bobby", async (req, res) => {
     // numbers Bobby reports are always exactly right.
     const requirementProgress = relevantGroupRows.map((row) => {
       const block = groupRowToBlock(row);
-      const rules = Array.isArray(block.courses) ? block.courses : [];
+      // De-duplicate rules (same code listed twice would double-count).
+      const seenRules = new Map();
+      (Array.isArray(block.courses) ? block.courses : []).forEach((rule) => {
+        const key = String(rule.code || "").toUpperCase().replace(/\s+/g, "");
+        if (key && !seenRules.has(key)) seenRules.set(key, rule);
+      });
+      const rules = Array.from(seenRules.values());
       const matchingCodes = passedCodes.filter((code) =>
         rules.some((rule) => courseMatchesRule(code, rule.code))
       );
@@ -2447,23 +2843,27 @@ app.post("/chat/bobby", async (req, res) => {
         0
       );
       const requiredCredits = Number(block.creditsRequired) || 0;
-      const remainingCredits = Math.max(requiredCredits - completedCredits, 0);
-      // A specific missing-course list only makes sense for "all
-      // required" blocks — a "choose N of these" elective block doesn't
-      // have one fixed set of courses still owed.
-      const missingCourses = block.mode === "all"
-        ? rules
-            .filter((rule) => !passedCodes.some((code) => courseMatchesRule(code, rule.code)))
-            .map((rule) => `${rule.code}${rule.name ? " " + rule.name : ""}`.trim())
+      const requiredCount = block.mode === "choose" ? Number(block.chooseCount) || 0 : rules.length;
+      const missingRules = block.mode === "all"
+        ? rules.filter((rule) => !passedCodes.some((code) => courseMatchesRule(code, rule.code)))
         : [];
+      const remainingCount = block.mode === "choose"
+        ? Math.max(requiredCount - matchingCodes.length, 0)
+        : missingRules.length;
+      const remainingCredits = Math.max(requiredCredits - completedCredits, 0);
 
       return {
         category: block.label || block.group || "Requirement",
+        mode: block.mode === "choose" ? `choose ${requiredCount}` : "all required",
         required_credits: requiredCredits,
         completed_credits: completedCredits,
         remaining_credits: remainingCredits,
-        satisfied: requiredCredits === 0 || remainingCredits === 0,
-        missing_courses: missingCourses,
+        completed_courses: matchingCodes,
+        remaining_course_count: remainingCount,
+        satisfied: (requiredCredits === 0 || remainingCredits === 0) && remainingCount === 0,
+        // A specific missing-course list only makes sense for "all
+        // required" blocks — a "choose N" block has no fixed set owed.
+        missing_courses: missingRules.map((rule) => `${rule.code}${rule.name ? " " + rule.name : ""}`.trim()),
       };
     });
 
@@ -2503,7 +2903,12 @@ app.post("/chat/bobby", async (req, res) => {
         total_credits_required: totalCreditsRequired,
         total_credits_earned: totalCreditsEarned,
         total_credits_remaining: totalCreditsRemaining,
+        cumulative_gpa: gpa,
+        min_gpa_required: Number(yearRow?.min_gpa) || 0,
       },
+      // Courses that did NOT earn credit, with the reason (F/W/R/I, or C-/D
+      // in a course Admin requires at least a C for).
+      not_completed_courses: notCompletedCourses,
       completed_courses: completedCourses.map((g) => ({
         code: g.course_code,
         name: g.course_name,
@@ -2541,6 +2946,7 @@ Ground rules:
 - Only answer using the STUDENT DATA JSON below — it is this one student's own record. Never invent a course code, grade, credit value, or requirement that isn't in it.
 - Never discuss or compare another student's data — you don't have it.
 - If the STUDENT DATA doesn't contain enough to answer (e.g. curriculum_requirements is null, or something needs a human judgment call), say so plainly and suggest they message their human advisor or check with the registrar — don't guess.
+- Credit rules: A through C and S always earn credit. C- and D earn credit EXCEPT in courses Admin marked as requiring at least a C (requires_min_grade_c: true) — there a C- or D does not count and the student must retake it. F, W, R and I never earn credit. Courses that did not earn credit are listed in not_completed_courses with a reason; explain it if asked. Each course is counted once even if retaken. Never add credits yourself.
 - credits_summary and requirement_progress are already fully calculated — total_credits_remaining, and each category's own remaining_credits, are exact numbers. State them directly; never recompute or re-derive credit totals yourself, and never contradict them.
 - When asked how many credits are left (overall or "what do I still need"), report credits_summary.total_credits_remaining, then break it down using requirement_progress — one line per category (its category label, e.g. "Major Requirement" / "General Education" / "Major Elective" — exactly as labeled, plus its own remaining_credits), and name the specific missing_courses for any category that lists them. Skip categories that are already satisfied unless asked for the full picture.
 - You can: summarize progress, list remaining requirement groups/courses by category, explain a grade or credit total, describe what a course is about (by code or title) using course_catalog, suggest electives that fit the student's goals/career_interests (if set) alongside their remaining requirements, sanity-check whether a course looks safe to plan next (based on completed courses vs listed prerequ courses if present), and give general encouragement/study tips.
@@ -2599,6 +3005,290 @@ ${JSON.stringify(context)}
     });
   }
 });
+
+// ------------------------------------------------
+// ADVISOR AI CHAT — "Ask Bobby about your students"
+// ------------------------------------------------
+// Answers only from the data of the students assigned to THIS advisor.
+// ------------------------------------------------
+// GET ADVISOR AI CHAT HISTORY
+// ------------------------------------------------
+app.get("/chat/advisor/history/:advisorId", async (req, res) => {
+  try {
+    const advisorId = String(req.params.advisorId || "")
+      .trim()
+      .toUpperCase();
+
+    if (!advisorId) {
+      return res.status(400).json({
+        error: "advisor_id is required.",
+      });
+    }
+
+    const { data, error } = await supabase
+      .from("advisor_chat_messages")
+      .select("role, message, created_at")
+      .eq("advisor_id", advisorId)
+      .order("created_at", { ascending: true });
+
+    if (error) {
+      console.error("Failed to load advisor chat history:", error);
+
+      return res.status(500).json({
+        error: error.message,
+      });
+    }
+
+    const messages = (data || []).map((row) => ({
+      role: row.role,
+      text: row.message,
+      created_at: row.created_at,
+    }));
+
+    res.json({ messages });
+  } catch (error) {
+    console.error("GET /chat/advisor/history error:", error);
+
+    res.status(500).json({
+      error: "Failed to load advisor chat history.",
+    });
+  }
+});
+app.post("/chat/advisor", async (req, res) => {
+  try {
+    const advisorId = String(req.body.advisor_id || "").trim().toUpperCase();
+    const message = String(req.body.message || "").trim();
+    const history = Array.isArray(req.body.history)
+      ? req.body.history.slice(-10)
+      : [];
+
+    if (!advisorId) {
+      return res.status(400).json({ error: "advisor_id is required." });
+    }
+
+    if (!message) {
+      return res.status(400).json({ error: "message is required." });
+    }
+
+    // Save the advisor's message
+    const { error: saveUserMessageError } = await supabase
+      .from("advisor_chat_messages")
+      .insert({
+        advisor_id: advisorId,
+        role: "user",
+        message,
+      });
+
+    if (saveUserMessageError) {
+      console.error(
+        "Failed to save advisor chat user message:",
+        saveUserMessageError
+      );
+    }
+
+    // Load previous advisor chat history
+    const { data: savedHistory, error: historyError } = await supabase
+      .from("advisor_chat_messages")
+      .select("role, message, created_at")
+      .eq("advisor_id", advisorId)
+      .order("created_at", { ascending: true });
+
+    if (historyError) {
+      console.error(
+        "Failed to load advisor chat history:",
+        historyError
+      );
+    }
+
+    const { data: ownStudents, error: studentsError } = await supabase
+      .from("students")
+      .select(
+        "student_id, name, curriculum_year, elective_group, advisor_id"
+      )
+      .ilike("advisor_id", advisorId);
+
+    if (studentsError) {
+      return res.status(500).json({ error: studentsError.message });
+    }
+
+    const students = ownStudents || [];
+    const upperId = (v) => String(v || "").trim().toUpperCase();
+    const ownIds = new Set(students.map((s) => upperId(s.student_id)));
+
+    const [grades, registrations, requested, approvals, curricula, groupRows, catalog] = await Promise.all([
+      students.length ? fetchAllRows("grades", "student_id, course_code, grade, credits, Semester") : [],
+      students.length ? fetchAllRows(REGISTRATIONS_TABLE, "student_id, course_code, section") : [],
+      students.length ? fetchAllRows(REQUESTED_COURSES_TABLE, "student_id, course_code, course_name") : [],
+      students.length
+        ? fetchAllRows(PLANNER_APPROVALS_TABLE, "student_id, status").catch(() => [])
+        : [],
+      fetchAllRows(CURRICULA_TABLE, "year, total_credits_required, min_gpa, program_name", 1000, "year"),
+      fetchAllRows(CURRICULUM_GROUPS_TABLE, "*", 1000, "id").catch(() => []),
+      fetchAllRows(COURSES_TABLE, "course_code, course_title, credits", 1000, "course_code").catch(() => []),
+    ]);
+
+    const availableYears = curricula.map((c) => String(c.year).trim());
+    const totalByYear = new Map(curricula.map((c) => [String(c.year).trim(), Number(c.total_credits_required) || 0]));
+    const minGpaByYear = new Map(curricula.map((c) => [String(c.year).trim(), Number(c.min_gpa) || 0]));
+    const groupsByYear = new Map();
+    groupRows.forEach((row) => {
+      const y = String(row.curriculum_year).trim();
+      if (!groupsByYear.has(y)) groupsByYear.set(y, []);
+      groupsByYear.get(y).push(row);
+    });
+    const minCRulesByYear = new Map();
+    groupsByYear.forEach((rows, y) => {
+      minCRulesByYear.set(
+        y,
+        rows
+          .flatMap((row) => (Array.isArray(row.courses) ? row.courses : []))
+          .filter((course) => course && course.minGradeC)
+          .map((course) => course.code)
+      );
+    });
+    const ctx = { totalByYear, availableYears, groupsByYear, minCRulesByYear };
+
+    const pickOwn = (rows) => rows.filter((r) => ownIds.has(upperId(r.student_id)));
+    const groupBy = (rows) => {
+      const map = new Map();
+      rows.forEach((r) => {
+        const id = upperId(r.student_id);
+        if (!map.has(id)) map.set(id, []);
+        map.get(id).push(r);
+      });
+      return map;
+    };
+    const gradesBy = groupBy(pickOwn(grades));
+    const regsBy = groupBy(pickOwn(registrations));
+    const reqsBy = groupBy(pickOwn(requested));
+    const approvalBy = new Map(pickOwn(approvals).map((a) => [upperId(a.student_id), a.status]));
+
+    const studentContext = students.map((s) => {
+      const id = upperId(s.student_id);
+      const progress = computeStudentProgress(s, gradesBy.get(id) || [], ctx);
+      const minGpa = minGpaByYear.get(progress.year) || 0;
+      return {
+        student_id: s.student_id,
+        name: s.name,
+        curriculum_year: progress.year,
+        elective_group: s.elective_group || null,
+        credits_earned: progress.earned,
+        credits_required: progress.totalRequired,
+        credits_remaining: progress.remaining,
+        estimated_terms_left: progress.termsLeft,
+        gpa: progress.gpa,
+        min_gpa_required: minGpa,
+        below_min_gpa: progress.gpa !== null && minGpa > 0 && progress.gpa < minGpa,
+        data_status: progress.status,
+        plan_approval: approvalBy.get(id) || "none",
+        registered_courses: [...new Set((regsBy.get(id) || []).map((r) => normalizeCourseCode(r.course_code) || r.course_code))],
+        requested_unscheduled_courses: [...new Set((reqsBy.get(id) || []).map((r) => normalizeCourseCode(r.course_code) || r.course_code))],
+        courses_needing_retake_or_not_counted: progress.notCompleted,
+        unmet_requirement_categories: progress.unmetCategories,
+        final_grades: progress.gradeList,
+      };
+    });
+
+    const withGpa = studentContext.filter((s) => s.gpa !== null);
+    const summary = {
+      total_students: studentContext.length,
+      average_gpa: withGpa.length
+        ? Math.round((withGpa.reduce((sum, s) => sum + s.gpa, 0) / withGpa.length) * 100) / 100
+        : null,
+      students_below_min_gpa: studentContext.filter((s) => s.below_min_gpa).map((s) => s.student_id),
+      students_with_no_grades: studentContext.filter((s) => s.data_status === "no_grades").map((s) => s.student_id),
+      students_with_pending_plan_approval: studentContext.filter((s) => s.plan_approval === "pending").map((s) => s.student_id),
+      students_with_no_registered_courses: studentContext.filter((s) => s.registered_courses.length === 0).map((s) => s.student_id),
+    };
+
+    const context = {
+      advisor_id: advisorId,
+      summary,
+      students: studentContext,
+      course_catalog: catalog
+        .filter((c) => c.course_code)
+        .map((c) => ({ code: c.course_code, title: c.course_title || "", credits: c.credits })),
+    };
+
+    const systemInstructions = `
+You are "Bobby", the AI assistant built into the advisor portal. You help an academic advisor look after THEIR OWN students.
+
+Ground rules:
+- Answer ONLY from the ADVISOR DATA JSON below. It contains only the students assigned to advisor ${advisorId}. Never invent a student, course, grade, credit value or requirement. If a student is not in the data, say they are not one of this advisor's students.
+- Credits, GPA and remaining credits are ALREADY calculated (credits_earned, credits_remaining, gpa, estimated_terms_left, unmet_requirement_categories). State them directly — never recompute or contradict them.
+- Credit rules (for explaining): A through C and S earn credit; C- and D earn credit except in courses Admin marked as needing at least a C; F, W, R and I never earn credit. Courses that don't count are in courses_needing_retake_or_not_counted with a reason.
+- You can: look up one student's progress, GPA, grades, registered / requested courses and remaining requirements; compare or rank students; list students who are below the minimum GPA, close to graduating, have pending plan approvals, no registered courses, or need to retake courses; describe a course using course_catalog; and suggest what to discuss in an advising meeting.
+- When listing students, always give the name together with the student ID. Use short lists for several students.
+- You cannot register or drop courses, change grades, approve plans, or promise official graduation status — frame graduation talk as "based on the records so far".
+- If the data is missing or not enough to answer, say so plainly and don't guess.
+- Keep replies concise and easy to scan.
+
+ADVISOR DATA:
+${JSON.stringify(context)}
+`.trim();
+
+    const contents = [
+  {
+    role: "user",
+    parts: [{ text: systemInstructions }],
+  },
+  {
+    role: "model",
+    parts: [
+      {
+        text: "Understood — I'll answer only from this advisor's students' data.",
+      },
+    ],
+  },
+
+  // Use saved chat history from Supabase
+  ...(savedHistory || []).slice(-10).map((m) => ({
+    role: m.role === "user" ? "user" : "model",
+    parts: [{ text: String(m.message || "") }],
+  })),
+
+  // Current question
+  {
+    role: "user",
+    parts: [{ text: message }],
+  },
+];
+
+    const response = await generateGeminiContent({
+  model: GEMINI_MODEL,
+  config: { temperature: 0.3 },
+  contents,
+});
+
+const reply = (response.text || "").trim();
+
+// Save Bobby's response
+const { error: saveBotMessageError } = await supabase
+  .from("advisor_chat_messages")
+  .insert({
+    advisor_id: advisorId,
+    role: "bot",
+    message: reply,
+  });
+
+if (saveBotMessageError) {
+  console.error(
+    "Failed to save advisor chat bot message:",
+    saveBotMessageError
+  );
+}
+
+res.json({ reply });
+  } catch (error) {
+    console.error("POST /chat/advisor error:", error);
+    const status = getGeminiHttpStatus(error);
+    res.status(status).json({
+      error: friendlyGeminiError(error),
+      geminiStatus: status,
+    });
+  }
+});
+
 
 // ------------------------------------------------
 // COURSE RECOMMENDATION: personalized elective suggestions grounded in
@@ -2756,7 +3446,15 @@ ${JSON.stringify(candidates)}
         const course = candidateByCode.get(normalizeCourseCode(r.course_code));
         if (!course) return null; // Gemini picked something outside the candidate list — drop it.
         const sections = sectionsByCode.get(normalizeCourseCode(course.code)) || [];
-        return { ...course, reason: String(r.reason || "").trim(), isOpen: sections.length > 0, sections };
+        const alwaysOpen = isAlwaysOpenCourse(course.code);
+        return {
+          ...course,
+          reason: String(r.reason || "").trim(),
+          // Senior Project is open every term even with no timetable rows.
+          isOpen: sections.length > 0 || alwaysOpen,
+          alwaysOpen,
+          sections,
+        };
       })
       .filter(Boolean)
       // A generous ceiling just to keep the response sane — not a target;
@@ -2798,13 +3496,37 @@ ${JSON.stringify(candidates)}
 // requested course instead of a registration).
 // ------------------------------------------------
 
-const PLAN_CATEGORIES = ["core", "major_elective", "gen_ed", "free_elective"];
+const PLAN_CATEGORIES = ["core", "major_elective", "gen_ed", "free_elective", "senior_project"];
 const PLAN_CATEGORY_LABELS = {
   core: "Core / Major Required",
   major_elective: "Major Elective",
   gen_ed: "General Education",
   free_elective: "Free Elective",
+  senior_project: "Senior Project",
 };
+// Categories that are OFF unless the student ticks them in Generate Plan.
+const PLAN_CATEGORIES_OFF_BY_DEFAULT = new Set(["free_elective", "senior_project"]);
+
+// Senior Project courses are open EVERY term: they are never on the
+// timetable (no class meetings), so they must not depend on it to count as
+// open. Keep this list in sync with client/src/utils/alwaysOpenCourses.js.
+const ALWAYS_OPEN_COURSE_CODES = new Set(["CSX3010", "CSX3011"]);
+const ALWAYS_OPEN_COURSE_NAMES = {
+  CSX3010: "Senior Project",
+  CSX3011: "Senior Project II",
+};
+function isAlwaysOpenCourse(code) {
+  return ALWAYS_OPEN_COURSE_CODES.has(normalizeCourseCode(code));
+}
+
+// Fixed prerequisites that apply on top of the Pre-Require table: Senior
+// Project II can only be registered after Senior Project I is passed.
+// Keep in sync with client/src/utils/alwaysOpenCourses.js.
+const FORCED_PREREQS = {
+  CSX3011: ["CSX3010"],
+};
+const forcedMissingPrereqs = (code, passedCodes) =>
+  (FORCED_PREREQS[normalizeCourseCode(code)] || []).filter((c) => !passedCodes.has(c));
 const MAX_GATEWAY_COURSES = 3;
 
 // Maps a curriculum block / course group name onto one of the plan
@@ -2857,17 +3579,31 @@ app.post("/course-plan", async (req, res) => {
     const categorySettings = {};
     PLAN_CATEGORIES.forEach((key) => {
       const raw = rawCategories[key] || {};
-      const enabled = raw.enabled === undefined ? key !== "free_elective" : Boolean(raw.enabled);
+      const enabled = raw.enabled === undefined ? !PLAN_CATEGORIES_OFF_BY_DEFAULT.has(key) : Boolean(raw.enabled);
       const countNum = Number(raw.count);
       const count = raw.count === null || raw.count === "" || raw.count === undefined || !Number.isFinite(countNum)
         ? null
         : Math.max(0, Math.floor(countNum));
-      categorySettings[key] = { enabled: enabled && count !== 0, count };
+      // Senior Project has no "how many" — it is always one course at a time.
+      const finalCount = key === "senior_project" ? null : count;
+      categorySettings[key] = { enabled: enabled && finalCount !== 0, count: finalCount };
     });
 
     if (!PLAN_CATEGORIES.some((key) => categorySettings[key].enabled)) {
       return res.status(400).json({ error: "Pick at least one course category to include in the plan." });
     }
+
+    // Optional scheduling preferences:
+    //   days      - day indexes (0 = Sunday ... 6 = Saturday) the student wants classes on
+    //   timeOfDay - "morning" (starts before 12:00) | "evening" (starts 12:00 or later) | "any"
+    //   strict    - false: prefer these (most classes), true: only use these (all classes)
+    const rawSchedule = req.body.schedule || {};
+    const preferredDays = Array.isArray(rawSchedule.days)
+      ? [...new Set(rawSchedule.days.map(Number).filter((d) => Number.isInteger(d) && d >= 0 && d <= 6))]
+      : [];
+    const timeOfDay = ["morning", "evening"].includes(rawSchedule.timeOfDay) ? rawSchedule.timeOfDay : "any";
+    const strictSchedule = Boolean(rawSchedule.strict);
+    const hasSchedulePref = preferredDays.length > 0 || timeOfDay !== "any";
 
     const [
       { data: student, error: studentError },
@@ -2978,6 +3714,15 @@ app.post("/course-plan", async (req, res) => {
         unlocksByCode.get(req).add(rowCode);
       });
     });
+    // Fixed rules (Senior Project II after Senior Project I) on top of the table.
+    Object.entries(FORCED_PREREQS).forEach(([courseCode, required]) => {
+      prereqByCode.set(courseCode, [...new Set([...(prereqByCode.get(courseCode) || []), ...required])]);
+      if (passedCodes.has(courseCode)) return;
+      required.forEach((req) => {
+        if (!unlocksByCode.has(req)) unlocksByCode.set(req, new Set());
+        unlocksByCode.get(req).add(courseCode);
+      });
+    });
     const missingPrereqs = (code) => (prereqByCode.get(code) || []).filter((c) => !passedCodes.has(c));
 
     // ---- Candidate pool, built from the student's own curriculum blocks ----
@@ -2994,9 +3739,12 @@ app.post("/course-plan", async (req, res) => {
         title: catalog?.course_title || info.title || "",
         credits: Number(catalog?.credits) || Number(info.credits) || 3,
         description: catalog?.description ? String(catalog.description).slice(0, 300) : "",
-        category: info.category,
+        // Senior Project courses get their own category so they are only
+        // planned when the student ticks "Senior Project".
+        category: isAlwaysOpenCourse(code) ? "senior_project" : info.category,
         blockLabel: info.blockLabel,
         required: info.required,
+        alwaysOpen: isAlwaysOpenCourse(code),
       });
     };
 
@@ -3056,16 +3804,70 @@ app.post("/course-plan", async (req, res) => {
       });
     }
 
+    // Senior Project ticked => its courses are ALWAYS candidates, even when
+    // the student's curriculum blocks don't list them (or list them in a
+    // block that counts as done). Only courses already passed / registered /
+    // requested are skipped.
+    if (categorySettings.senior_project?.enabled) {
+      ALWAYS_OPEN_COURSE_CODES.forEach((code) => {
+        if (candidates.has(code) || excluded.has(code)) return;
+        const catalog = catalogByCode.get(code);
+        candidates.set(code, {
+          code,
+          title: catalog?.course_title || ALWAYS_OPEN_COURSE_NAMES[code] || "Senior Project",
+          credits: Number(catalog?.credits) || 3,
+          description: "",
+          category: "senior_project",
+          blockLabel: "Senior Project",
+          required: true,
+          alwaysOpen: true,
+        });
+      });
+    }
+
     // ---- Filter: category on, prerequisites met, on the timetable (if any) ----
-    const eligible = [...candidates.values()]
+    // ---- Day / time-of-day preferences ----
+    const MORNING_BEFORE = 12 * 60;
+    const EVENING_FROM = 12 * 60; // 12:00 — everything from noon on counts as evening
+    const meetingFits = (m) => {
+      if (preferredDays.length > 0 && !preferredDays.includes(m.day)) return false;
+      const start = timeToMinutes(m.start);
+      if (timeOfDay === "morning" && start >= MORNING_BEFORE) return false;
+      if (timeOfDay === "evening" && start < EVENING_FROM) return false;
+      return true;
+    };
+    // 1 = every meeting fits, 0 = none do.
+    const sectionFit = (sec) =>
+      sec.meetings.length ? sec.meetings.filter(meetingFits).length / sec.meetings.length : 1;
+    const sortedSections = (code) =>
+      [...(sectionsByCode.get(code)?.values() || [])].sort((a, b) => {
+        const na = Number(a.section), nb = Number(b.section);
+        if (!Number.isNaN(na) && !Number.isNaN(nb)) return na - nb;
+        return String(a.section).localeCompare(String(b.section));
+      });
+    // How well a course CAN fit the preference (best section), for ordering.
+    const bestFit = (c) => {
+      if (!hasSchedulePref || c.alwaysOpen || !hasTimetable) return 1;
+      return Math.max(0, ...sortedSections(c.code).map(sectionFit));
+    };
+
+    const eligibleBase = [...candidates.values()]
       .filter((c) => categorySettings[c.category]?.enabled)
       .filter((c) => missingPrereqs(c.code).length === 0)
-      .filter((c) => !hasTimetable || sectionsByCode.has(c.code))
+      .filter((c) => !hasTimetable || sectionsByCode.has(c.code) || c.alwaysOpen)
       .map((c) => ({
         ...c,
         number: courseNumberOf(c.code),
         unlocks: [...(unlocksByCode.get(c.code) || [])].sort(),
       }));
+    // Strict mode: only courses with at least one section that fully matches.
+    const eligible = hasSchedulePref && strictSchedule
+      ? eligibleBase.filter((c) => c.alwaysOpen || !hasTimetable || bestFit(c) === 1)
+      : eligibleBase;
+    const skippedBySchedule = eligibleBase.length - eligible.length;
+    if (skippedBySchedule > 0) {
+      warnings.push(`${skippedBySchedule} course(s) were left out because none of their sections match your chosen days/times.`);
+    }
 
     // ---- Interest ranking (Gemini) — only affects stage 3 ordering ----
     const interestRank = new Map(); // code -> { rank, reason }
@@ -3113,19 +3915,32 @@ ${JSON.stringify(eligible.slice(0, 150).map((c) => ({ code: c.code, title: c.tit
     let plannedCredits = existingCredits;
     const selectedCodes = new Set();
 
+    // While true (and a day/time preference is set), only sections that fully
+    // match the preference may be chosen. The generator first tries to place
+    // everything this way, and only then relaxes it.
+    let fitOnly = false;
+
     const pickSection = (course) => {
+      // Always-open courses (Senior Project) have no class meetings, so
+      // there is no section to pick and nothing to clash with.
+      if (course.alwaysOpen) return { ok: true, section: null };
       if (!hasTimetable) return { ok: true, section: null };
-      const sections = [...(sectionsByCode.get(course.code)?.values() || [])].sort((a, b) => {
-        const na = Number(a.section), nb = Number(b.section);
-        if (!Number.isNaN(na) && !Number.isNaN(nb)) return na - nb;
-        return String(a.section).localeCompare(String(b.section));
-      });
       const taken = [...busyMeetings, ...selectedMeetings];
-      const free = sections.find((sec) => sec.meetings.every((m) => !taken.some((t) => meetingsOverlap(m, t))));
-      return free ? { ok: true, section: free } : { ok: false };
+      let options = sortedSections(course.code).filter((sec) =>
+        sec.meetings.every((m) => !taken.some((t) => meetingsOverlap(m, t)))
+      );
+      if (hasSchedulePref) {
+        if (strictSchedule || fitOnly) options = options.filter((sec) => sectionFit(sec) === 1);
+        // Best-fitting section first; ties keep the lowest section number.
+        else options = [...options].sort((x, y) => sectionFit(y) - sectionFit(x));
+      }
+      return options[0] ? { ok: true, section: options[0] } : { ok: false };
     };
 
     const categoryFull = (category) => {
+      // Only ONE Senior Project course per plan: Senior Project I first;
+      // Senior Project II only becomes eligible once I has been passed.
+      if (category === "senior_project" && perCategoryCount[category] >= 1) return true;
       const { count } = categorySettings[category];
       return count !== null && perCategoryCount[category] >= count;
     };
@@ -3147,7 +3962,9 @@ ${JSON.stringify(eligible.slice(0, 150).map((c) => ({ code: c.code, title: c.tit
         stage,
         reason,
         unlocks: course.unlocks,
-        isOpen: Boolean(section),
+        isOpen: Boolean(section) || Boolean(course.alwaysOpen),
+        alwaysOpen: Boolean(course.alwaysOpen),
+        scheduleFit: section && hasSchedulePref ? sectionFit(section) : 1,
         section: section ? { section: section.section, meetings: section.meetings } : null,
       });
       if (section) selectedMeetings.push(...section.meetings);
@@ -3158,69 +3975,148 @@ ${JSON.stringify(eligible.slice(0, 150).map((c) => ({ code: c.code, title: c.tit
     };
 
     const byNumber = (a, b) => a.number - b.number || b.unlocks.length - a.unlocks.length;
+    // With a day/time preference, courses that can fit it go first in the
+    // optional stages (required courses keep their priority).
+    const byFit = (cmp) => (a, b) => (hasSchedulePref ? bestFit(b) - bestFit(a) : 0) || cmp(a, b);
     const requiredReason = (c) =>
       `Graduation requirement (${c.blockLabel})${c.unlocks.length ? ` — also unlocks ${c.unlocks.slice(0, 3).join(", ")}` : ""}.`;
     const gatewayReason = (c) =>
       `Prerequisite for ${c.unlocks.slice(0, 4).join(", ")}${c.unlocks.length > 4 ? ` and ${c.unlocks.length - 4} more` : ""} — taking it now opens those up.`;
     const interestReason = (c) => interestRank.get(c.code)?.reason || `Counts toward ${c.blockLabel}.`;
 
-    // Stage 0: categories where the student pinned an exact number of courses.
+    const stageSenior = () => {
+      // Senior Project is first priority whenever the student ticked it —
+      // placed before everything else, Senior Project I before II.
+      if (!categorySettings.senior_project?.enabled) return;
+      const seniorPool = eligible.filter((c) => c.category === "senior_project").sort(byNumber);
+      for (const c of seniorPool) {
+        if (tryAdd(c, "senior_project", `Senior Project — placed first in your plan (${c.title || c.code}).`, { ignoreTarget: true })) break;
+      }
+    };
+
+    // Categories where the student pinned an exact number of courses.
+    const stagePinned = () => {
+      PLAN_CATEGORIES.forEach((category) => {
+        const { enabled, count } = categorySettings[category];
+        if (!enabled || count === null) return;
+        const pool = eligible.filter((c) => c.category === category).sort((a, b) => {
+          if (a.required !== b.required) return a.required ? -1 : 1;
+          if (a.unlocks.length > 0 !== b.unlocks.length > 0) return a.unlocks.length > 0 ? -1 : 1;
+          const ra = interestRank.get(a.code)?.rank ?? Infinity;
+          const rb = interestRank.get(b.code)?.rank ?? Infinity;
+          return ra - rb || byNumber(a, b);
+        });
+        for (const course of pool) {
+          if (categoryFull(category)) break;
+          const stage = course.required
+            ? "required"
+            : course.unlocks.length
+            ? "gateway"
+            : interestRank.has(course.code)
+            ? "interest"
+            : "category";
+          const reason =
+            stage === "required"
+              ? requiredReason(course)
+              : stage === "gateway"
+              ? gatewayReason(course)
+              : stage === "interest"
+              ? interestReason(course)
+              : `You asked for ${count} ${PLAN_CATEGORY_LABELS[category]} course(s) — counts toward ${course.blockLabel}.`;
+          tryAdd(course, stage, reason, { ignoreTarget: true });
+        }
+      });
+    };
+
+    // Core + graduation-required courses, lowest number first.
+    const stageRequired = () => {
+      eligible
+        .filter((c) => c.required || c.category === "core")
+        .sort(byNumber)
+        .forEach((c) => tryAdd(c, "required", requiredReason(c)));
+    };
+
+    // 2-3 gateway courses (prerequisites for other courses), lowest number first.
+    let gatewayCount = 0;
+    const stageGateway = () => {
+      eligible
+        .filter((c) => c.unlocks.length > 0)
+        .sort(byFit(byNumber))
+        .forEach((c) => {
+          if (gatewayCount >= MAX_GATEWAY_COURSES) return;
+          if (tryAdd(c, "gateway", gatewayReason(c))) gatewayCount += 1;
+        });
+    };
+
+    // By interest, then anything else by course number.
+    const stageOptional = () => {
+      eligible
+        .filter((c) => interestRank.has(c.code))
+        .sort(byFit((a, b) => interestRank.get(a.code).rank - interestRank.get(b.code).rank))
+        .forEach((c) => tryAdd(c, "interest", interestReason(c)));
+      eligible.slice().sort(byFit(byNumber)).forEach((c) => tryAdd(c, "fill", `Counts toward ${c.blockLabel}.`));
+    };
+
+    // With a day/time preference the generator tries EVERY possible way to
+    // land inside it before giving up on it:
+    //   1. place each stage using only sections that fully match;
+    //   2. only then let required courses (graduation priority) and the
+    //      optional stages use their best remaining section;
+    //   3. finally try to swap any course that ended up outside the
+    //      preference into a matching section that is still free.
+    // (Strict mode never relaxes: it only ever uses matching sections.)
+    const relaxable = hasSchedulePref && !strictSchedule;
+    fitOnly = hasSchedulePref;
+    stageSenior();
+    stagePinned();
+    stageRequired();
+    if (relaxable) {
+      fitOnly = false;
+      stagePinned();
+      stageRequired();
+      fitOnly = true;
+    }
+    stageGateway();
+    stageOptional();
+    if (relaxable) {
+      fitOnly = false;
+      stageGateway();
+      stageOptional();
+    }
+    fitOnly = false;
+
     PLAN_CATEGORIES.forEach((category) => {
       const { enabled, count } = categorySettings[category];
-      if (!enabled || count === null) return;
-      const pool = eligible.filter((c) => c.category === category).sort((a, b) => {
-        if (a.required !== b.required) return a.required ? -1 : 1;
-        if (a.unlocks.length > 0 !== b.unlocks.length > 0) return a.unlocks.length > 0 ? -1 : 1;
-        const ra = interestRank.get(a.code)?.rank ?? Infinity;
-        const rb = interestRank.get(b.code)?.rank ?? Infinity;
-        return ra - rb || byNumber(a, b);
-      });
-      for (const course of pool) {
-        if (categoryFull(category)) break;
-        const stage = course.required
-          ? "required"
-          : course.unlocks.length
-          ? "gateway"
-          : interestRank.has(course.code)
-          ? "interest"
-          : "category";
-        const reason =
-          stage === "required"
-            ? requiredReason(course)
-            : stage === "gateway"
-            ? gatewayReason(course)
-            : stage === "interest"
-            ? interestReason(course)
-            : `You asked for ${count} ${PLAN_CATEGORY_LABELS[category]} course(s) — counts toward ${course.blockLabel}.`;
-        tryAdd(course, stage, reason, { ignoreTarget: true });
-      }
-      if (perCategoryCount[category] < count) {
+      if (enabled && count !== null && perCategoryCount[category] < count) {
         warnings.push(`Only found ${perCategoryCount[category]} eligible ${PLAN_CATEGORY_LABELS[category]} course(s) (you asked for ${count}).`);
       }
     });
 
-    // Stage 1: core + graduation-required courses, lowest number first.
-    eligible
-      .filter((c) => c.required || c.category === "core")
-      .sort(byNumber)
-      .forEach((c) => tryAdd(c, "required", requiredReason(c)));
-
-    // Stage 2: 2-3 gateway courses (prerequisites for other courses), lowest number first.
-    let gatewayCount = 0;
-    eligible
-      .filter((c) => c.unlocks.length > 0)
-      .sort(byNumber)
-      .forEach((c) => {
-        if (gatewayCount >= MAX_GATEWAY_COURSES) return;
-        if (tryAdd(c, "gateway", gatewayReason(c))) gatewayCount += 1;
-      });
-
-    // Stage 3: by interest, then anything else by course number.
-    eligible
-      .filter((c) => interestRank.has(c.code))
-      .sort((a, b) => interestRank.get(a.code).rank - interestRank.get(b.code).rank)
-      .forEach((c) => tryAdd(c, "interest", interestReason(c)));
-    eligible.slice().sort(byNumber).forEach((c) => tryAdd(c, "fill", `Counts toward ${c.blockLabel}.`));
+    // Swap pass: move courses sitting outside the preference into a matching
+    // section whenever one is free of clashes with everything else.
+    if (hasSchedulePref && hasTimetable) {
+      for (let round = 0; round < 4; round += 1) {
+        let changed = false;
+        selected.forEach((entry) => {
+          if (!entry.section || entry.scheduleFit >= 1) return;
+          const others = [
+            ...busyMeetings,
+            ...selected.filter((e) => e !== entry && e.section).flatMap((e) => e.section.meetings),
+          ];
+          const better = sortedSections(entry.code).find(
+            (sec) =>
+              sectionFit(sec) > entry.scheduleFit &&
+              sec.meetings.every((m) => !others.some((o) => meetingsOverlap(m, o)))
+          );
+          if (better) {
+            entry.section = { section: better.section, meetings: better.meetings };
+            entry.scheduleFit = sectionFit(better);
+            changed = true;
+          }
+        });
+        if (!changed) break;
+      }
+    }
 
     if (plannedCredits < targetCredits) {
       warnings.push(
@@ -3228,7 +4124,26 @@ ${JSON.stringify(eligible.slice(0, 150).map((c) => ({ code: c.code, title: c.tit
       );
     }
 
-    const stageOrder = { required: 0, gateway: 1, category: 2, interest: 3, fill: 4 };
+    // Senior Project unticked => it must never appear in the plan. Remove any
+    // that slipped in (e.g. through a pinned count or the fallback pools).
+    if (!categorySettings.senior_project?.enabled) {
+      for (let i = selected.length - 1; i >= 0; i -= 1) {
+        if (selected[i].category === "senior_project" || isAlwaysOpenCourse(selected[i].code)) {
+          plannedCredits -= Number(selected[i].credits) || 0;
+          perCategoryCount[selected[i].category] = Math.max((perCategoryCount[selected[i].category] || 1) - 1, 0);
+          selected.splice(i, 1);
+        }
+      }
+    }
+
+    if (hasSchedulePref && !strictSchedule) {
+      const offPreference = selected.filter((c) => c.scheduleFit < 1).length;
+      if (offPreference > 0) {
+        warnings.push(`${offPreference} course(s) are outside your preferred days/times because no matching section was open or free.`);
+      }
+    }
+
+    const stageOrder = { senior_project: -1, required: 0, gateway: 1, category: 2, interest: 3, fill: 4 };
     selected.sort((a, b) => stageOrder[a.stage] - stageOrder[b.stage] || courseNumberOf(a.code) - courseNumberOf(b.code));
 
     res.json({
@@ -3239,6 +4154,7 @@ ${JSON.stringify(eligible.slice(0, 150).map((c) => ({ code: c.code, title: c.tit
       totalCredits: plannedCredits,
       hasTimetable,
       categoryCounts: perCategoryCount,
+      schedule: { days: preferredDays, timeOfDay, strict: strictSchedule },
       warnings,
     });
   } catch (error) {
@@ -3253,20 +4169,28 @@ ${JSON.stringify(eligible.slice(0, 150).map((c) => ({ code: c.code, title: c.tit
 // and each student's estimated terms left to graduate.
 //
 // Terms left = ceil(remaining credits / 18), where remaining credits =
-// the curriculum's total_credits_required minus the credits of courses
-// the student has passed (each course code counted once).
+// the larger of (curriculum total_credits_required - credits passed) and the
+// sum of each requirement category's own shortfall. Passing follows the
+// Graduation Check rules, including Admin's per-course "Min C" flag.
 // ------------------------------------------------
 const DASHBOARD_CREDITS_PER_TERM = 18;
 
 // Supabase returns at most 1000 rows per request, so tables that grow
 // with the number of students (grades, registrations) are read in pages.
-async function fetchAllRows(table, columns, pageSize = 1000) {
+async function fetchAllRows(table, columns, pageSize = 1000, orderBy = "id") {
   const rows = [];
+  // Stable ordering matters: paging without ORDER BY can repeat or skip rows
+  // between pages, which silently corrupts credit totals. If the order column
+  // doesn't exist on this table, fall back to unordered paging.
+  let useOrder = Boolean(orderBy);
   for (let from = 0; ; from += pageSize) {
-    const { data, error } = await supabase
-      .from(table)
-      .select(columns)
-      .range(from, from + pageSize - 1);
+    let query = supabase.from(table).select(columns);
+    if (useOrder) query = query.order(orderBy, { ascending: true });
+    let { data, error } = await query.range(from, from + pageSize - 1);
+    if (error && useOrder && from === 0) {
+      useOrder = false;
+      ({ data, error } = await supabase.from(table).select(columns).range(from, from + pageSize - 1));
+    }
     if (error) throw new Error(`${table}: ${error.message}`);
     rows.push(...(data || []));
     if (!data || data.length < pageSize) break;
@@ -3276,20 +4200,26 @@ async function fetchAllRows(table, columns, pageSize = 1000) {
 
 app.get("/admin-dashboard", async (req, res) => {
   try {
-    const [students, advisors, registrations, requested, grades, curricula, courses, approvals] =
+    const [students, advisors, registrations, requested, grades, curricula, courses, approvals, curriculumGroupRows] =
       await Promise.all([
-        fetchAllRows("students", "student_id, name, curriculum_year, advisor_id"),
+        fetchAllRows("students", "student_id, name, curriculum_year, advisor_id, elective_group", 1000, "student_id"),
         fetchAllRows("advisors", "id"),
         fetchAllRows(REGISTRATIONS_TABLE, "student_id, course_code, section"),
         fetchAllRows(REQUESTED_COURSES_TABLE, "student_id, course_code, course_name"),
         fetchAllRows("grades", "student_id, course_code, grade, credits"),
-        fetchAllRows(CURRICULA_TABLE, "year, total_credits_required"),
-        fetchAllRows(COURSES_TABLE, "course_code, course_title"),
+        fetchAllRows(CURRICULA_TABLE, "year, total_credits_required", 1000, "year"),
+        fetchAllRows(COURSES_TABLE, "course_code, course_title", 1000, "course_code"),
         // Optional table — a missing planner_approvals table shouldn't
         // break the whole dashboard.
         fetchAllRows(PLANNER_APPROVALS_TABLE, "student_id, status").catch((err) => {
           console.warn("Dashboard: could not load planner approvals:", err.message);
           return null;
+        }),
+        // Requirement groups carry the admin "Min C" flags and per-category
+        // credit requirements used for the remaining-credit calculation.
+        fetchAllRows(CURRICULUM_GROUPS_TABLE, "*", 1000, "id").catch((err) => {
+          console.warn("Dashboard: could not load curriculum groups:", err.message);
+          return [];
         }),
       ]);
 
@@ -3351,35 +4281,119 @@ app.get("/admin-dashboard", async (req, res) => {
       .sort((a, b) => b.total - a.total || a.code.localeCompare(b.code));
 
     // ---- Graduation (terms left) ----
-    const NON_PASSING_GRADES = new Set(["F", "W", "WF", "I", ""]);
-    const passedByStudent = new Map(); // sid -> Map(code -> credits)
-    const hasGrades = new Set();
-    grades.forEach((g) => {
-      const sid = upperId(g.student_id);
-      hasGrades.add(sid);
-      if (NON_PASSING_GRADES.has(String(g.grade || "").trim().toUpperCase())) return;
-      const code = normalizeCourseCode(g.course_code);
-      if (!code) return;
-      if (!passedByStudent.has(sid)) passedByStudent.set(sid, new Map());
-      const map = passedByStudent.get(sid);
-      map.set(code, Math.max(map.get(code) || 0, Number(g.credits) || 0));
-    });
+    // Same rules as the client's Graduation Check / Dashboard:
+    //  - A..C and S always pass; C- and D pass EXCEPT in courses Admin
+    //    ticked "Min C"; F, W, WF, R, I and blank never pass.
+    //  - A course counts once (a passing retake replaces earlier attempts).
+    //  - Remaining credits = the larger of (total required - total passed)
+    //    and the sum of each requirement category's own shortfall, so a
+    //    student who has enough total credits but is still missing a
+    //    required category is NOT shown as "Ready to graduate".
+    const COMPLETED_GRADES = new Set(["A", "A-", "B+", "B", "B-", "C+", "C", "S"]);
+    const PASSING_WITHOUT_MIN_C = new Set(["C-", "D"]);
 
     const availableYears = curricula.map((c) => String(c.year).trim());
     const totalByYear = new Map(curricula.map((c) => [String(c.year).trim(), Number(c.total_credits_required) || 0]));
 
-    const graduation = students.map((s) => {
-      const sid = upperId(s.student_id);
+    const groupsByYear = new Map(); // year -> [group rows]
+    curriculumGroupRows.forEach((row) => {
+      const y = String(row.curriculum_year).trim();
+      if (!groupsByYear.has(y)) groupsByYear.set(y, []);
+      groupsByYear.get(y).push(row);
+    });
+    const minCRulesByYear = new Map(); // year -> [course code / range]
+    groupsByYear.forEach((rows, y) => {
+      minCRulesByYear.set(
+        y,
+        rows
+          .flatMap((row) => (Array.isArray(row.courses) ? row.courses : []))
+          .filter((course) => course && course.minGradeC)
+          .map((course) => course.code)
+      );
+    });
+
+    const studentYear = (s) => {
       let year = String(s.curriculum_year || "").trim();
       if (!totalByYear.has(year)) year = deriveCurriculumYearFromId(s.student_id, availableYears) || "";
+      return year;
+    };
+
+    const gradesByStudent = new Map(); // sid -> [grade rows]
+    grades.forEach((g) => {
+      const sid = upperId(g.student_id);
+      if (!gradesByStudent.has(sid)) gradesByStudent.set(sid, []);
+      gradesByStudent.get(sid).push(g);
+    });
+
+    const graduation = students.map((s) => {
+      const sid = upperId(s.student_id);
+      const year = studentYear(s);
       const totalRequired = totalByYear.get(year) || 0;
-      const earned = [...(passedByStudent.get(sid)?.values() || [])].reduce((a, b) => a + b, 0);
+      const minCRules = minCRulesByYear.get(year) || [];
+      const studentGrades = gradesByStudent.get(sid) || [];
+
+      // code -> credits of the passing attempt (each course counted once).
+      // Codes that don't match the standard pattern still count, using
+      // their trimmed text, exactly like the client does.
+      const passed = new Map();
+      studentGrades.forEach((g) => {
+        const rawCode = String(g.course_code || "").trim().toUpperCase();
+        const code = normalizeCourseCode(g.course_code) || rawCode;
+        if (!code) return;
+        const grade = String(g.grade || "").trim().toUpperCase();
+        const needsC = minCRules.some((rule) => courseMatchesRule(code, rule));
+        const ok = COMPLETED_GRADES.has(grade) || (PASSING_WITHOUT_MIN_C.has(grade) && !needsC);
+        if (!ok) return;
+        passed.set(code, Math.max(passed.get(code) || 0, Number(g.credits) || 0));
+      });
+      const passedCodes = [...passed.keys()];
+      const earned = [...passed.values()].reduce((a, b) => a + b, 0);
 
       let status = "ok";
       if (!totalRequired) status = "no_curriculum";
-      else if (!hasGrades.has(sid)) status = "no_grades";
+      else if (!studentGrades.length) status = "no_grades";
 
-      const remaining = totalRequired ? Math.max(totalRequired - earned, 0) : null;
+      let remaining = null;
+      let hasUnmetCourses = false;
+      if (totalRequired) {
+        const totalShortfall = Math.max(totalRequired - earned, 0);
+
+        // Per-category shortfall (honours the student's chosen elective
+        // group, like Graduation Check).
+        const relevant = (groupsByYear.get(year) || []).filter((row) => {
+          if (!row.is_choose_one_group) return true;
+          return s.elective_group && row.label === s.elective_group;
+        });
+        let groupShortfall = 0;
+        relevant.forEach((row) => {
+          const block = groupRowToBlock(row);
+          const seen = new Map();
+          (block.courses || []).forEach((rule) => {
+            const key = String(rule.code || "").toUpperCase().replace(/\s+/g, "");
+            if (key && !seen.has(key)) seen.set(key, rule);
+          });
+          const rules = [...seen.values()];
+          const matching = passedCodes.filter((code) => rules.some((rule) => courseMatchesRule(code, rule.code)));
+          const doneCredits = matching.reduce((sum, code) => sum + (passed.get(code) || 0), 0);
+          groupShortfall += Math.max((Number(block.creditsRequired) || 0) - doneCredits, 0);
+
+          const missingCount = block.mode === "choose"
+            ? Math.max((Number(block.chooseCount) || 0) - matching.length, 0)
+            : rules.filter((rule) => !passedCodes.some((code) => courseMatchesRule(code, rule.code))).length;
+          if (missingCount > 0) hasUnmetCourses = true;
+        });
+
+        remaining = Math.max(totalShortfall, groupShortfall);
+      }
+
+      let termsLeft = null;
+      if (status === "ok") {
+        termsLeft = Math.ceil(remaining / DASHBOARD_CREDITS_PER_TERM);
+        // Credits may add up while a required course is still missing —
+        // that student still needs at least one more term.
+        if (termsLeft === 0 && hasUnmetCourses) termsLeft = 1;
+      }
+
       return {
         studentId: s.student_id,
         name: s.name || "",
@@ -3388,7 +4402,7 @@ app.get("/admin-dashboard", async (req, res) => {
         totalRequired,
         earned,
         remaining,
-        termsLeft: status === "ok" ? Math.ceil(remaining / DASHBOARD_CREDITS_PER_TERM) : null,
+        termsLeft,
         status,
       };
     });
@@ -4054,6 +5068,37 @@ app.post("/registrations", async (req, res) => {
         return res.status(422).json({
           error: `Cannot save ${firstBlocked.courseCode}: has not yet passed ${firstBlocked.missingCourses.join(", ")}.`,
           blockedCourses,
+        });
+      }
+    }
+
+    // Senior Project II needs Senior Project I passed — enforced even when
+    // the student has no Pre-Require group or the table has no row for it.
+    if (courseList.some((course) => FORCED_PREREQS[normalizeCourseCode(course.course_code)])) {
+      const { data: forcedGrades, error: forcedGradesError } = await supabase
+        .from("grades")
+        .select("course_code, grade")
+        .ilike("student_id", String(studentId).trim());
+      if (forcedGradesError) return res.status(500).json({ error: forcedGradesError.message });
+
+      const NOT_PASSED = new Set(["F", "W", "WF", "I", "R", ""]);
+      const forcedPassed = new Set(
+        (forcedGrades || [])
+          .filter((g) => !NOT_PASSED.has(String(g.grade || "").trim().toUpperCase()))
+          .map((g) => normalizeCourseCode(g.course_code))
+          .filter(Boolean)
+      );
+      const forcedBlocked = courseList
+        .map((course) => ({
+          courseCode: course.course_code,
+          missingCourses: forcedMissingPrereqs(course.course_code, forcedPassed),
+        }))
+        .filter((item) => item.missingCourses.length > 0);
+
+      if (forcedBlocked.length > 0) {
+        return res.status(422).json({
+          error: `Cannot save ${forcedBlocked[0].courseCode}: has not yet passed ${forcedBlocked[0].missingCourses.join(", ")}.`,
+          blockedCourses: forcedBlocked,
         });
       }
     }
@@ -4858,8 +5903,9 @@ app.put("/advisors/:id/password", async (req, res) => {
       return res.status(400).json({ error: "Current and new password are both required." });
     }
 
-    if (newPassword.length < 6) {
-      return res.status(400).json({ error: "New password must contain at least 6 characters." });
+    const newPasswordProblem = validatePasswordStrength(newPassword);
+    if (newPasswordProblem) {
+      return res.status(400).json({ error: newPasswordProblem });
     }
 
     const { data: advisor, error: lookupError } = await supabase
@@ -4958,8 +6004,9 @@ app.put("/admins/:id/password", async (req, res) => {
       return res.status(400).json({ error: "Current and new password are both required." });
     }
 
-    if (newPassword.length < 6) {
-      return res.status(400).json({ error: "New password must contain at least 6 characters." });
+    const newPasswordProblem = validatePasswordStrength(newPassword);
+    if (newPasswordProblem) {
+      return res.status(400).json({ error: newPasswordProblem });
     }
 
     const { data: admin, error: lookupError } = await supabase
@@ -5231,10 +6278,14 @@ app.use((error, req, res, next) => {
 // STUDENTS
 // ------------------------------------------------
 
-const PORT = 3000;
+// Workers: fixed internal port consumed by httpServerHandler.
+// Local node: 3001, which is what the client's dev API_BASE points to.
+const PORT = IS_CLOUDFLARE_WORKER ? 3000 : Number(process.env.PORT) || 3001;
 
-app.listen(PORT);
-
-export default httpServerHandler({
-  port: PORT,
+app.listen(PORT, () => {
+  if (!IS_CLOUDFLARE_WORKER) console.log(`Server running on http://localhost:${PORT}`);
 });
+
+export default IS_CLOUDFLARE_WORKER
+  ? httpServerHandler({ port: PORT })
+  : {};

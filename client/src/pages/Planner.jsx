@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import axios from "axios";
 import { X, AlertTriangle, Save, Clock, RefreshCcw } from "lucide-react";
 import EditableList from "../components/EditableList.jsx";
+import { ALWAYS_OPEN_COURSES, forcedMissingPrereqs } from "../utils/alwaysOpenCourses.js";
 import { loadState } from "../utils/storage.js";
 import {
   TIMETABLE_DAY_LABELS,
@@ -11,11 +12,12 @@ import {
   DEFAULT_TIMETABLE_ENTRIES,
 } from "../data/mockTimetable.js";
 import { getCurrentPrereqGroupId } from "../utils/prereqGroup.js";
-import { getCurriculumForStudent, syncCurriculaFromServer, subscribeCurricula } from "../utils/curriculum.js";
+import { prereqTextKey } from "../data/prereqGroups.js";
+import { getCurriculumForStudent, getCurriculumGroups, syncCurriculaFromServer, subscribeCurricula } from "../utils/curriculum.js";
 import { evaluateCurriculumProgress } from "../utils/curriculumProgress.js";
 import { getStudentElectiveGroup, filterBlocksForElectiveGroup } from "../utils/electiveGroup.js";
 import { normalizeCourseCode, extractCourseCodes } from "../utils/courseCode.js";
-import { getFinalCourseGrades, isCompletedGrade } from "../utils/graduation.js";
+import { COMPLETED_GRADES, PASSING_WITHOUT_MIN_C, normalizeGrade, courseMatchesRule } from "../utils/graduation.js";
 import {
   statusOverrideGroupKey,
   fetchStudentElectiveCourses,
@@ -24,9 +26,9 @@ import {
 } from "../utils/studentElectiveCourses.js";
 import StudentPrerequisites from "./StudentPrerequisites.jsx";
 import "./Planner.css";
+import UnsavedNotice from "../components/UnsavedNotice.jsx";
 
 const API_BASE = import.meta.env.VITE_API_BASE || (import.meta.env.PROD ? "https://api.bobbyadvisor.org" : "http://localhost:3001");
-const PREREQ_GROUP_COLUMN = { g1: "g1_text", g2: "g2_text", g3: "g3_text" };
 
 // Advisor's review of the saved Planner Course list (see /planner-approvals
 // on the server). null = the student hasn't saved a plan yet.
@@ -183,20 +185,32 @@ function Planner({ studentId, curriculumYear = null }) {
   );
   const [sectionPicker, setSectionPicker] = useState(null); // block awaiting a section choice, or null
   const [prereqRows, setPrereqRows] = useState([]);
-  const [passedCodes, setPassedCodes] = useState(new Set());
+  const [courseCreditsByCode, setCourseCreditsByCode] = useState({});
+  const [gradeRows, setGradeRows] = useState([]);
+  // JSON of the last saved/loaded course list — used to tell if the student
+  // has changes that still need saving (null until the first load finishes).
+  const [savedSnapshot, setSavedSnapshot] = useState(null);
+
+  // After a course is removed the cards above (class schedule) change height,
+  // which makes the page jump — bring the student back to the Planner Course card.
+  const plannerCourseRef = useRef(null);
+  const scrollToPlannerCourse = () => {
+    // Wait for React to re-render with the course removed, then scroll.
+    setTimeout(() => {
+      plannerCourseRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 50);
+  };
   const [blockedNotice, setBlockedNotice] = useState(null); // { code, reason } | null
   const [conflictNotice, setConflictNotice] = useState(null); // { newLabel, conflictingLabel } | null
   const [saveStatus, setSaveStatus] = useState("idle"); // idle | saving | saved | error
   const [approval, setApproval] = useState(null); // planner_approvals row, or null
   const [approvalRefreshing, setApprovalRefreshing] = useState(false);
-  const [showSchedule, setShowSchedule] = useState(false);
   const [courseGroupByCode, setCourseGroupByCode] = useState({}); // course_code -> "Course" group, from Admin's All Courses
   // AI-judged reading of the current Selected Course list — see
   // POST /planner-insights in server/server.js. Starts null (falls back to
   // the plain heuristic below) until the first AI response comes back.
   const [aiInsights, setAiInsights] = useState({ difficulty: null, balanceSuggestion: null });
   const [insightsLoading, setInsightsLoading] = useState(false);
-  const [creditsEarned, setCreditsEarned] = useState(0);
   const [showCourseLeft, setShowCourseLeft] = useState(false);
   const [electiveGroupId, setElectiveGroupId] = useState(null); // a group's label, or null, from Goal and Career
   const [, setCurriculaVersion] = useState(0);
@@ -214,8 +228,44 @@ function Planner({ studentId, curriculumYear = null }) {
     ? getCurriculumForStudent(studentId, curriculumYear)
     : null;
 
+  // Same pass rules as Dashboard / Graduation Check: A..C and S always pass;
+  // C- and D pass EXCEPT in courses Admin marked "Min C"; F/W/R/I never pass;
+  // each course counts once (a passing retake replaces earlier attempts).
+  const { passedCodes, creditsEarned } = useMemo(() => {
+    const minCRules = getCurriculumGroups(curriculum)
+      .flatMap((block) => block.courses || [])
+      .filter((course) => course.minGradeC)
+      .map((course) => course.code);
+    const passes = (code, grade) => {
+      const g = normalizeGrade(grade);
+      if (COMPLETED_GRADES.has(g)) return true;
+      if (PASSING_WITHOUT_MIN_C.has(g)) return !minCRules.some((rule) => courseMatchesRule(code, rule));
+      return false;
+    };
+    const set = new Set();
+    let earned = 0;
+    // Pick the final attempt using the same Min C-aware rule, so a retake
+    // that finally reaches C replaces an earlier C-/D.
+    const byCode = new Map();
+    gradeRows.forEach((row) => {
+      const code = normalizeCourseCode(row.course_code) || String(row.course_code || "").trim().toUpperCase();
+      if (!code) return;
+      if (!byCode.has(code)) byCode.set(code, []);
+      byCode.get(code).push(row);
+    });
+    byCode.forEach((attempts, code) => {
+      const best = attempts
+        .filter((row) => passes(code, row.grade))
+        .reduce((max, row) => Math.max(max, Number(row.credits) || 0), -1);
+      if (best < 0) return;
+      set.add(code);
+      earned += best;
+    });
+    return { passedCodes: set, creditsEarned: earned };
+  }, [gradeRows, curriculum]);
+
   const prereqGroupId = studentId ? getCurrentPrereqGroupId(studentId) : null;
-  const prereqColumn = PREREQ_GROUP_COLUMN[prereqGroupId];
+  const prereqColumn = prereqTextKey(prereqGroupId);
 
   // Curriculum requirements live in the database — refresh the cache when
   // the Planner opens, and re-render whenever it changes elsewhere.
@@ -279,6 +329,7 @@ function Planner({ studentId, curriculumYear = null }) {
           .filter(Boolean);
 
         setCourses(savedCourses);
+        setSavedSnapshot(JSON.stringify([...savedCourses].sort()));
         setApproval(res.data?.approval || null);
       })
       .catch((err) => {
@@ -288,6 +339,7 @@ function Planner({ studentId, curriculumYear = null }) {
         );
 
         setCourses([]);
+        setSavedSnapshot(JSON.stringify([]));
         setApproval(null);
       });
   }, [studentId]);
@@ -332,20 +384,7 @@ function Planner({ studentId, curriculumYear = null }) {
     if (!studentId) return;
     axios
       .get(`${API_BASE}/grades?student_id=${studentId}`)
-      .then((res) => {
-        const set = new Set();
-        let earned = 0;
-        getFinalCourseGrades(res.data || []).forEach((g) => {
-          if (isCompletedGrade(g.grade)) {
-            const courseCode = normalizeCourseCode(g.course_code);
-            if (courseCode) set.add(courseCode);
-            const credits = Number(g.credits);
-            if (!Number.isNaN(credits) && credits > 0) earned += credits;
-          }
-        });
-        setPassedCodes(set);
-        setCreditsEarned(earned);
-      })
+      .then((res) => setGradeRows(Array.isArray(res.data) ? res.data : []))
       .catch((err) => console.warn("Could not load grades for prerequisite check:", err.message));
   }, [studentId]);
 
@@ -357,11 +396,15 @@ function Planner({ studentId, curriculumYear = null }) {
       .then((res) => {
         const courses = res.data?.courses || [];
         const map = {};
+        const creditMap = {};
         courses.forEach((course) => {
           const code = normalizeCourseCode(course.course_code);
           if (code && course.course_group) map[code] = course.course_group;
+          const credits = Number(course.credits);
+          if (code && Number.isFinite(credits) && credits > 0) creditMap[code] = credits;
         });
         setCourseGroupByCode(map);
+        setCourseCreditsByCode(creditMap);
       })
       .catch((err) => console.warn("Could not load course catalog:", err.message));
   }, []);
@@ -404,6 +447,14 @@ function Planner({ studentId, curriculumYear = null }) {
   // "CSX4202"), falls back to matching by course title so a listing
   // quirk can never let a prerequisite check silently get skipped.
   const checkPrerequisite = (courseCode, courseTitle) => {
+    // Fixed rule: Senior Project II needs Senior Project I passed first.
+    const forcedMissing = forcedMissingPrereqs(courseCode, passedCodes);
+    if (forcedMissing.length > 0) {
+      return {
+        code: normalizeCourseCode(courseCode) || courseCode,
+        reason: `You have not yet passed: ${forcedMissing.join(", ")}`,
+      };
+    }
     if (!prereqColumn) return null; // no group set — can't check, don't block
     const normalizedCourseCode = normalizeCourseCode(courseCode);
     let row = normalizedCourseCode
@@ -506,6 +557,12 @@ function Planner({ studentId, curriculumYear = null }) {
 
   // The selected-course calendar must contain only the sections the student
   // has chosen, not every class that happens to be open.
+  // Selected courses that are open every term (Senior Project) have no
+  // class meetings, so they can't appear on the weekly grid — list them below it.
+  const alwaysOpenSelected = courses.filter((label) =>
+    ALWAYS_OPEN_COURSES.some(({ code }) => code === normalizeCourseCode(extractCourseCodes(label)[0]))
+  );
+
   const selectedDayLayouts = useMemo(() => {
     const selectedEntries = openEntries.filter((entry) => courses.includes(courseLabel(entry)));
     const byDay = TIMETABLE_DAY_LABELS.map(() => []);
@@ -664,6 +721,7 @@ function Planner({ studentId, curriculumYear = null }) {
     try {
       const res = await axios.post(`${API_BASE}/registrations`, { studentId, courses });
       setApproval(res.data?.approval || null);
+      setSavedSnapshot(JSON.stringify([...courses].sort()));
       setSaveStatus("saved");
       setTimeout(() => setSaveStatus("idle"), 2000);
     } catch (err) {
@@ -693,7 +751,11 @@ function Planner({ studentId, curriculumYear = null }) {
     }
   };
 
-  const totalPlannedCredits = courses.length * CREDITS_PER_COURSE;
+  // Real credits from the course catalog (default 3 when a course isn't listed).
+  const totalPlannedCredits = courses.reduce((sum, label) => {
+    const code = normalizeCourseCode(extractCourseCodes(label)[0]);
+    return sum + (courseCreditsByCode[code] || CREDITS_PER_COURSE);
+  }, 0);
   const totalCreditsRequired = curriculum?.totalCreditsRequired ?? null;
   const creditLeft =
     totalCreditsRequired !== null
@@ -810,7 +872,44 @@ function Planner({ studentId, curriculumYear = null }) {
             </div>
           )}
 
-          <div className="planner-card">
+          <div className="planner-card planner-schedule-inline">
+            <h3>My Class Schedule :</h3>
+            {courses.length === 0 ? <p className="planner-empty">No courses selected yet.</p> : (
+              <div className="sp-grid-scroll">
+                <div className="sp-grid">
+                  <div className="sp-header"><div className="sp-label-col" /><div className="sp-time-track">{TIMETABLE_TIME_LABELS.map((label) => <span key={label} className="sp-time-label">{label}</span>)}</div></div>
+                  {TIMETABLE_DAY_LABELS.map((dayLabel, dayIndex) => {
+                    const { placed, laneCount } = selectedDayLayouts[dayIndex];
+                    // Sunday is an exception: only show it when a class actually meets that day.
+                    if (dayIndex === 0 && placed.length === 0) return null;
+                    const trackHeight = ROW_PADDING * 2 + laneCount * LANE_HEIGHT;
+                    return <div className="sp-row" key={dayLabel} style={{ minHeight: `${trackHeight}px` }}>
+                      <div className="sp-label-col">{dayLabel}</div>
+                      <div className="sp-day-track" style={{ height: `${trackHeight}px` }}>
+                        {placed.map((block) => {
+                          const left = pctFromTime(block.start);
+                          const width = pctFromTime(block.end) - left;
+                          const primary = block.sections[0];
+                          return <div key={block.key} className="sp-block sp-schedule-block" style={{ left: `${left}%`, width: `${width}%`, top: `${ROW_PADDING + block.lane * LANE_HEIGHT}px`, height: `${LANE_HEIGHT - 8}px`, background: block.color }}>
+                            <span className="sp-block-code">{courseLabel(primary)}</span>
+                            <span className="sp-block-name">{primary.name || `${dayLabel} ${primary.start}–${primary.end}`}</span>
+                          </div>;
+                        })}
+                      </div>
+                    </div>;
+                  })}
+                </div>
+              </div>
+            )}
+            {alwaysOpenSelected.length > 0 && (
+              <p className="planner-schedule-no-time">
+                <strong>No class time (open every term):</strong>{" "}
+                {alwaysOpenSelected.join(", ")}
+              </p>
+            )}
+          </div>
+
+          <div className="planner-card" ref={plannerCourseRef}>
             <div className="planner-card-head">
               <h3>Planner Course :</h3>
               <div className="planner-card-head-actions">
@@ -827,8 +926,16 @@ function Planner({ studentId, curriculumYear = null }) {
                 <button type="button" className="planner-schedule-btn" onClick={() => setShowCourseLeft(true)}>
                   Check course left
                 </button>
-                <button type="button" className="planner-schedule-btn" onClick={() => setShowSchedule(true)}>
-                  Show Class
+                <button
+                  type="button"
+                  className="planner-schedule-btn planner-remove-all-btn"
+                  disabled={courses.length === 0}
+                  onClick={() => {
+                    setCourses([]);
+                    scrollToPlannerCourse();
+                  }}
+                >
+                  Remove all
                 </button>
               </div>
             </div>
@@ -851,9 +958,10 @@ function Planner({ studentId, curriculumYear = null }) {
               onAdd={addManualCourse}
               onEdit={editManualCourse}
               showEdit={false}
-              onDelete={(index) =>
-                setCourses((prev) => prev.filter((_, i) => i !== index))
-              }
+              onDelete={(index) => {
+                setCourses((prev) => prev.filter((_, i) => i !== index));
+                scrollToPlannerCourse();
+              }}
               renderLabel={(code, index) => {
                 const group = groupForLabel(code);
                 return `Selected Course ${index + 1} : ${code}${group ? ` (${group})` : ""}`;
@@ -872,6 +980,9 @@ function Planner({ studentId, curriculumYear = null }) {
               {saveStatus === "error" && (
                 <span className="planner-save-error">Could not save — please try again.</span>
               )}
+              <UnsavedNotice
+                show={saveStatus !== "saving" && savedSnapshot !== null && JSON.stringify([...courses].sort()) !== savedSnapshot}
+              />
             </div>
           </div>
 
@@ -899,6 +1010,8 @@ function Planner({ studentId, curriculumYear = null }) {
 
                     {TIMETABLE_DAY_LABELS.map((dayLabel, dayIndex) => {
                       const { placed, laneCount } = dayLayouts[dayIndex];
+                      // Sunday is an exception: only show it when a class actually meets that day.
+                      if (dayIndex === 0 && placed.length === 0) return null;
                       const trackHeight = ROW_PADDING * 2 + laneCount * LANE_HEIGHT;
                       return (
                         <div className="sp-row" key={dayLabel} style={{ minHeight: `${trackHeight}px` }}>
@@ -938,6 +1051,25 @@ function Planner({ studentId, curriculumYear = null }) {
                       );
                     })}
                   </div>
+                </div>
+                <div className="sp-always-open">
+                  <span className="sp-always-open-label">Open every term (not on the timetable):</span>
+                  {ALWAYS_OPEN_COURSES.map(({ code, name }) => {
+                    const added = courses.some(
+                      (label) => normalizeCourseCode(extractCourseCodes(label)[0]) === code
+                    );
+                    return (
+                      <button
+                        type="button"
+                        key={code}
+                        className="sp-always-open-btn"
+                        disabled={added}
+                        onClick={() => addManualCourse(code)}
+                      >
+                        {code} {name}{added ? " · Added" : ""}
+                      </button>
+                    );
+                  })}
                 </div>
                 <p className="sp-hint">
                   Click a course on the timetable to add it — if a course has more than one section at the same time, you'll be asked which section to join.
@@ -1041,42 +1173,6 @@ function Planner({ studentId, curriculumYear = null }) {
             <button type="button" className="planner-blocked-ok" onClick={() => setBlockedNotice(null)}>
               OK
             </button>
-          </div>
-        </div>
-      )}
-
-      {showSchedule && (
-        <div className="sp-modal-backdrop" onClick={() => setShowSchedule(false)}>
-          <div className="sp-modal planner-schedule-modal" onClick={(e) => e.stopPropagation()}>
-            <div className="sp-modal-head">
-              <h4>My Class Schedule</h4>
-              <button type="button" className="sp-modal-close" onClick={() => setShowSchedule(false)}><X size={18} /></button>
-            </div>
-            {courses.length === 0 ? <p className="planner-empty">No courses selected yet.</p> : (
-              <div className="sp-grid-scroll">
-                <div className="sp-grid">
-                  <div className="sp-header"><div className="sp-label-col" /><div className="sp-time-track">{TIMETABLE_TIME_LABELS.map((label) => <span key={label} className="sp-time-label">{label}</span>)}</div></div>
-                  {TIMETABLE_DAY_LABELS.map((dayLabel, dayIndex) => {
-                    const { placed, laneCount } = selectedDayLayouts[dayIndex];
-                    const trackHeight = ROW_PADDING * 2 + laneCount * LANE_HEIGHT;
-                    return <div className="sp-row" key={dayLabel} style={{ minHeight: `${trackHeight}px` }}>
-                      <div className="sp-label-col">{dayLabel}</div>
-                      <div className="sp-day-track" style={{ height: `${trackHeight}px` }}>
-                        {placed.map((block) => {
-                          const left = pctFromTime(block.start);
-                          const width = pctFromTime(block.end) - left;
-                          const primary = block.sections[0];
-                          return <div key={block.key} className="sp-block sp-schedule-block" style={{ left: `${left}%`, width: `${width}%`, top: `${ROW_PADDING + block.lane * LANE_HEIGHT}px`, height: `${LANE_HEIGHT - 8}px`, background: block.color }}>
-                            <span className="sp-block-code">{courseLabel(primary)}</span>
-                            <span className="sp-block-name">{primary.name || `${dayLabel} ${primary.start}–${primary.end}`}</span>
-                          </div>;
-                        })}
-                      </div>
-                    </div>;
-                  })}
-                </div>
-              </div>
-            )}
           </div>
         </div>
       )}

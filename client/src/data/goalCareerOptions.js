@@ -1,13 +1,12 @@
 export const GOAL_OPTIONS = [
-  "Graduate on time",
+  "Graduate Early",
   "Improve my GPA",
-  "Pass my required courses",
   "Retake failed or incomplete courses",
   "Complete prerequisite courses",
   "Choose the right courses for next semester",
   "Balance course workload",
   "Complete graduation requirements",
-  "Prepare for an internship",
+  "Prepare for an internship and career",
   "Build a portfolio",
   "Prepare for graduate study",
 ];

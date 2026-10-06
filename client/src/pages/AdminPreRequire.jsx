@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import axios from "axios";
-import { Plus, Trash2, Save, RefreshCcw, UploadCloud, FileText } from "lucide-react";
-import { PREREQ_GROUPS } from "../data/prereqGroups.js";
+import { Plus, Trash2, Save, RefreshCcw, UploadCloud, FileText, X } from "lucide-react";
+import { getPrereqGroups, prereqTextKey } from "../data/prereqGroups.js";
+import { loadPrereqGroups } from "../utils/prereqGroup.js";
 import "./AdminPreRequire.css";
 
 const API_BASE = import.meta.env.VITE_API_BASE || (import.meta.env.PROD ? "https://api.bobbyadvisor.org" : "http://localhost:3001");
@@ -278,6 +279,13 @@ function AdminPreRequire() {
   const [error, setError] = useState("");
   const [allCourses, setAllCourses] = useState([]);
 
+  // Prerequisite batch groups: the 3 built-in ones + any batch code the
+  // admin adds below (e.g. 671 -> "Batch 67/1 onwards").
+  const [groups, setGroups] = useState(() => getPrereqGroups());
+  const [showAddGroup, setShowAddGroup] = useState(false);
+  const [newBatchCode, setNewBatchCode] = useState("");
+  const [addingGroup, setAddingGroup] = useState(false);
+
   // Upload-and-extract state
   const [file, setFile] = useState(null);
   const [preview, setPreview] = useState(null); // data URL, image files only
@@ -296,6 +304,51 @@ function AdminPreRequire() {
         setError(err.response?.data?.error || "Failed to load Pre-Require data.");
       })
       .finally(() => setLoading(false));
+  };
+
+  const reloadGroups = () => loadPrereqGroups().then((list) => setGroups([...list]));
+
+  useEffect(() => {
+    reloadGroups();
+  }, []);
+
+  const handleAddGroup = async () => {
+    const code = newBatchCode.trim();
+    if (!/^\d{3}$/.test(code)) {
+      setError("Enter a 3-digit batch code, e.g. 671.");
+      return;
+    }
+
+    setAddingGroup(true);
+    setError("");
+    try {
+      const res = await axios.post(`${API_BASE}/prereq-groups`, { batch_code: code });
+      await loadPrereqGroups();
+      setGroups([...(res.data.groups || getPrereqGroups())]);
+      setNewBatchCode("");
+      setShowAddGroup(false);
+      setMessage(`Added batch ${code}. Fill in its prerequisites in the new column, then save each row.`);
+      setTimeout(() => setMessage(""), 4000);
+    } catch (err) {
+      console.error("Failed to add batch group:", err);
+      setError(err.response?.data?.error || "Failed to add batch code.");
+    } finally {
+      setAddingGroup(false);
+    }
+  };
+
+  const handleRemoveGroup = async (group) => {
+    if (!window.confirm(`Remove "${group.label}"? Its prerequisite text will be deleted from every course.`)) return;
+    setError("");
+    try {
+      await axios.delete(`${API_BASE}/prereq-groups/${group.id}`);
+      await loadPrereqGroups();
+      setGroups([...getPrereqGroups()]);
+      load();
+    } catch (err) {
+      console.error("Failed to remove batch group:", err);
+      setError(err.response?.data?.error || "Failed to remove batch code.");
+    }
   };
 
   // Load the course list from Supabase (for Search Suggestions)
@@ -432,14 +485,21 @@ function AdminPreRequire() {
     <div className="prereq-admin-page">
       <div className="prereq-admin-header">
         <span className="admin-summary-title-pill">Pre-Require</span>
-        <button type="button" className="prereq-admin-refresh" onClick={load}>
+        <button
+          type="button"
+          className="prereq-admin-refresh"
+          onClick={() => {
+            load();
+            reloadGroups();
+          }}
+        >
           <RefreshCcw size={15} strokeWidth={2} />
           <span>Refresh</span>
         </button>
       </div>
 
       <p className="prereq-admin-help">
-        Set the Prerequisite for each course, separately for the 3 student batch groups — type it as free-form
+        Set the Prerequisite for each course, separately for each student batch group — type it as free-form
         text, e.g. <code>CSX3002 Object-Oriented Concepts and Programming</code> or{" "}
         <code>Year 3 and &gt;= 72 credits</code>. The system automatically pulls out any course codes you type
         to check them when a student registers.
@@ -493,10 +553,67 @@ function AdminPreRequire() {
               <tr>
                 <th>Courses</th>
                 <th>Title</th>
-                {PREREQ_GROUPS.map((g) => (
-                  <th key={g.id}>{g.label}</th>
+                {groups.map((g) => (
+                  <th key={g.id}>
+                    <span className="prereq-admin-th-label">{g.label}</span>
+                    {/^b\d{3}$/.test(g.id) && (
+                      <button
+                        type="button"
+                        className="prereq-admin-th-remove"
+                        onClick={() => handleRemoveGroup(g)}
+                        aria-label={`Remove ${g.label}`}
+                        title="Remove this batch code"
+                      >
+                        <X size={13} strokeWidth={2.5} />
+                      </button>
+                    )}
+                  </th>
                 ))}
-                <th></th>
+                <th className="prereq-admin-th-actions">
+                  <div className="prereq-admin-addgroup">
+                    {showAddGroup ? (
+                      <>
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          maxLength={3}
+                          placeholder="671"
+                          value={newBatchCode}
+                          autoFocus
+                          onChange={(e) => setNewBatchCode(e.target.value.replace(/\D/g, ""))}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") handleAddGroup();
+                            if (e.key === "Escape") setShowAddGroup(false);
+                          }}
+                        />
+                        <button
+                          type="button"
+                          className="prereq-admin-add"
+                          onClick={handleAddGroup}
+                          disabled={addingGroup || newBatchCode.length !== 3}
+                        >
+                          <Plus size={16} strokeWidth={2} />
+                          <span>{addingGroup ? "Adding…" : "Add"}</span>
+                        </button>
+                        <button
+                          type="button"
+                          className="prereq-admin-addgroup-cancel"
+                          onClick={() => {
+                            setShowAddGroup(false);
+                            setNewBatchCode("");
+                          }}
+                        >
+                          Cancel
+                        </button>
+                      </>
+                    ) : (
+                      <button type="button" className="prereq-admin-add" onClick={() => setShowAddGroup(true)}>
+                        <Plus size={16} strokeWidth={2} />
+                        <span>Add Batch Code (e.g. 671)</span>
+                      </button>
+                    )}
+                  </div>
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -528,10 +645,10 @@ function AdminPreRequire() {
                       }}
                     />
                   </td>
-                  {["g1_text", "g2_text", "g3_text"].map((field) => (
+                  {groups.map((g) => prereqTextKey(g.id)).map((field) => (
                     <td key={field}>
                       <PrereqTextSuggest
-                        value={row[field]}
+                        value={row[field] || ""}
                         allCourses={allCourses}
                         onChange={(val) => updateRow(idx, field, val)}
                       />

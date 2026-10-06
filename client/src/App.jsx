@@ -19,7 +19,7 @@ import WelcomeGoals from "./pages/WelcomeGoals.jsx";
 import Profile from "./pages/Profile.jsx";
 import StudentAdvisorChat from "./pages/StudentAdvisorChat.jsx";
 import { getCurrentAdvisorId, setCurrentAdvisor } from "./utils/profile.js";
-import { getCurrentPrereqGroupId } from "./utils/prereqGroup.js";
+import { getCurrentPrereqGroupId, loadPrereqGroups } from "./utils/prereqGroup.js";
 import { syncCurriculaFromServer } from "./utils/curriculum.js";
 import { syncAdvisorsFromServer } from "./data/mockAdvisors.js";
 import { getStudentGoalsCareer } from "./utils/goalsCareer.js";
@@ -81,6 +81,20 @@ function App() {
   // Holds a verified Microsoft sign-in while a first-time student
   // completes Student ID / curriculum registration.
   const [microsoftRegistration, setMicrosoftRegistration] = useState(null);
+
+  // Pull the prerequisite groups (built-in + any batch an admin added, e.g.
+  // 671) and re-resolve the student's group once they arrive.
+  useEffect(() => {
+    let cancelled = false;
+    loadPrereqGroups().then(() => {
+      if (!cancelled && role === "student" && userId) {
+        setPrereqGroupId(getCurrentPrereqGroupId(userId));
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [role, userId]);
 
   // Keep the signed-in account across browser refreshes.
   useEffect(() => {

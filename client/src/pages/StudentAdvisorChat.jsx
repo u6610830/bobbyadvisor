@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import axios from "axios";
-import { Send, User } from "lucide-react";
+import { Send, User, CornerDownLeft } from "lucide-react";
 import { getAdvisorById } from "../data/mockAdvisors.js";
 import { supabase } from "../utils/supabaseClient.js";
 import { cleanId } from "../utils/cleanId.js";
@@ -376,7 +376,7 @@ function StudentAdvisorChat({ studentId, advisorId }) {
         >
           <input
             type="text"
-            placeholder="TEXT YOUR MESSAGE"
+            placeholder="Enter text here"
             value={draft}
             onChange={(e) =>
               setDraft(e.target.value)
@@ -389,10 +389,8 @@ function StudentAdvisorChat({ studentId, advisorId }) {
             aria-label="Send message"
             disabled={sending || loading}
           >
-            <Send
-              size={18}
-              strokeWidth={2}
-            />
+            <Send size={18} strokeWidth={2} />
+            <CornerDownLeft size={15} strokeWidth={2.4} className="chatbot-enter-icon" aria-hidden="true" />
           </button>
         </form>
       </div>

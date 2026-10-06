@@ -3,16 +3,17 @@ import axios from "axios";
 import { Sparkles, AlertTriangle, X } from "lucide-react";
 import { normalizeCourseCode, extractCourseCodes } from "../utils/courseCode.js";
 import { getCurrentPrereqGroupId } from "../utils/prereqGroup.js";
+import { prereqTextKey } from "../data/prereqGroups.js";
 import { getFinalCourseGrades, isCompletedGrade } from "../utils/graduation.js";
 import { TIMETABLE_DAY_LABELS } from "../data/mockTimetable.js";
 import CoursePlanGenerator from "./CoursePlanGenerator.jsx";
 
 import "./CourseRecommendation.css";
+import { forcedMissingPrereqs } from "../utils/alwaysOpenCourses.js";
 
 const API_BASE =
   import.meta.env.VITE_API_BASE || (import.meta.env.PROD ? "https://api.bobbyadvisor.org" : "http://localhost:3001");
 
-const PREREQ_GROUP_COLUMN = { g1: "g1_text", g2: "g2_text", g3: "g3_text" };
 
 function toMinutes(hhmm) {
   const [h, m] = (hhmm || "00:00").split(":").map(Number);
@@ -57,7 +58,7 @@ function CourseRecommendation({ studentId, onNavigate }) {
   const [passedCodes, setPassedCodes] = useState(() => new Set());
 
   const prereqGroupId = studentId ? getCurrentPrereqGroupId(studentId) : null;
-  const prereqColumn = PREREQ_GROUP_COLUMN[prereqGroupId];
+  const prereqColumn = prereqTextKey(prereqGroupId);
 
   const loadRecommendations = async () => {
     if (!studentId) {
@@ -142,6 +143,11 @@ function CourseRecommendation({ studentId, onNavigate }) {
   // has the student passed everything it lists? Returns a message string
   // if blocked, or null if clear (or if there's simply no rule to check).
   const checkPrerequisite = (courseCode, courseTitle) => {
+    // Fixed rule: Senior Project II needs Senior Project I passed first.
+    const forcedMissing = forcedMissingPrereqs(courseCode, passedCodes);
+    if (forcedMissing.length > 0) {
+      return `Cannot add ${normalizeCourseCode(courseCode) || courseCode}: has not yet passed ${forcedMissing.join(", ")}.`;
+    }
     if (!prereqColumn) return null; // no group resolvable — can't check, don't block
     const normalized = normalizeCourseCode(courseCode);
     let row = normalized

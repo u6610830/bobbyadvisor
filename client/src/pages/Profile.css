@@ -121,3 +121,20 @@
   font-size: 12.5px;
   color: var(--text-muted);
 }
+
+.profile-error-note {
+  margin: 0;
+  font-size: 14px;
+  color: var(--danger, #DC2626);
+}
+
+.profile-advisor-form input {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.profile-advisor-form label {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-h);
+}

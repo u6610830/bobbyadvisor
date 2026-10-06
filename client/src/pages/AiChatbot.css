@@ -8,9 +8,9 @@
 .chatbot-title-pill {
   align-self: flex-start;
   background: var(--accent-bg);
-  color: var(--text-h);
+  color: var(--primary-hover); /* brown-gold, same as the selected sidebar item */
   font-size: 20px;
-  font-weight: 500;
+  font-weight: 600;
   padding: 14px 28px;
   border-radius: 16px;
 }

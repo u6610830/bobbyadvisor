@@ -48,9 +48,9 @@ function AdminPortal({ userId, onSignOut }) {
     if (activePage === "upload-data") return <AdminUploadData />;
     if (activePage === "excel-check") return <AdminExcelCheck />;
     if (activePage === "pre-require") return <AdminPreRequire />;
-    if (activePage === "registrations") return <AdminCourseRegistrations />;
+    if (activePage === "registrations") return <div className="reg-purple"><AdminCourseRegistrations /></div>;
     if (activePage === "courses") return <AdminCourses />;
-    if (activePage === "high-demand") return <RequestedCourses />;
+    if (activePage === "high-demand") return <div className="reg-purple"><RequestedCourses /></div>;
     return <AdminDashboard onNavigate={navigate} />;
   };
 
@@ -71,4 +71,3 @@ function AdminPortal({ userId, onSignOut }) {
 }
 
 export default AdminPortal;
-

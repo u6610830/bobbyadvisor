@@ -299,7 +299,9 @@ function AdminDashboard({ onNavigate }) {
             </div>
             <p className="dash-muted">
               Terms left = remaining credits ÷ {data.creditsPerTerm} (rounded up). Remaining credits = the
-              curriculum's total credits minus credits already passed. Click a bar to filter the list.
+              larger of the curriculum's total credits minus credits passed, and the credits still missing in
+              its requirement categories. Passing follows Graduation Check, including courses that need at
+              least a C. Click a bar to filter the list.
             </p>
 
             <div className="dash-vbars">

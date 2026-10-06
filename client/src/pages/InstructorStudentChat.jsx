@@ -284,7 +284,7 @@ function InstructorStudentChat({ studentId, advisorId, onBack }) {
         >
           <input
             type="text"
-            placeholder="TEXT YOUR MESSAGE"
+            placeholder="Enter text here"
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             disabled={loading}

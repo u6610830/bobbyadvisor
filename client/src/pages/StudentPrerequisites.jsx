@@ -1,13 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import axios from "axios";
 import { CheckCircle2, XCircle, HelpCircle } from "lucide-react";
-import { getPrereqGroupLabel } from "../data/prereqGroups.js";
+import { getPrereqGroupLabel, prereqTextKey } from "../data/prereqGroups.js";
 import { extractCourseCodes, normalizeCourseCode } from "../utils/courseCode.js";
 import { getFinalCourseGrades, isCompletedGrade } from "../utils/graduation.js";
 import "./StudentPrerequisites.css";
 
 const API_BASE = import.meta.env.VITE_API_BASE || (import.meta.env.PROD ? "https://api.bobbyadvisor.org" : "http://localhost:3001");
-const GROUP_COLUMN = { g1: "g1_text", g2: "g2_text", g3: "g3_text" };
 
 // The prerequisite group is derived automatically from the student's ID
 // (see utils/prereqGroup.js) — students never pick it manually.
@@ -50,7 +49,7 @@ function StudentPrerequisites({ studentId, prereqGroupId }) {
     return set;
   }, [grades]);
 
-  const column = GROUP_COLUMN[groupId];
+  const column = prereqTextKey(groupId);
 
   return (
     <div className="prereq-student-page">

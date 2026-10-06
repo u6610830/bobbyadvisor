@@ -2,6 +2,7 @@ import { useState } from "react";
 import axios from "axios";
 import { CalendarCheck, AlertTriangle, Check, X, Sparkles } from "lucide-react";
 import { normalizeCourseCode } from "../utils/courseCode.js";
+import { isAlwaysOpenCourse } from "../utils/alwaysOpenCourses.js";
 import { TIMETABLE_DAY_LABELS } from "../data/mockTimetable.js";
 
 import "./CoursePlanGenerator.css";
@@ -14,6 +15,7 @@ const CATEGORY_OPTIONS = [
   { key: "major_elective", label: "Major Elective" },
   { key: "gen_ed", label: "General Education" },
   { key: "free_elective", label: "Free Elective" },
+  { key: "senior_project", label: "Senior Project" },
 ];
 
 const DEFAULT_CATEGORIES = {
@@ -21,15 +23,35 @@ const DEFAULT_CATEGORIES = {
   major_elective: { enabled: true, count: "" },
   gen_ed: { enabled: true, count: "" },
   free_elective: { enabled: false, count: "" },
+  // New: unticked by default — the student opts in to Senior Project.
+  senior_project: { enabled: false, count: "" },
 };
 
 const STAGE_LABELS = {
+  senior_project: "First priority — Senior Project",
   required: "Graduation requirement",
   gateway: "Unlocks other courses",
   category: "Your category pick",
   interest: "Matches your interests",
   fill: "Fills remaining credits",
 };
+
+// Days a student can pick (Sunday is left out — classes normally don't meet).
+// `day` matches the timetable's index: 0 = Sunday ... 6 = Saturday.
+const DAY_OPTIONS = [
+  { day: 1, label: "Mon" },
+  { day: 2, label: "Tue" },
+  { day: 3, label: "Wed" },
+  { day: 4, label: "Thu" },
+  { day: 5, label: "Fri" },
+  { day: 6, label: "Sat" },
+];
+
+const TIME_OPTIONS = [
+  { value: "any", label: "Any time" },
+  { value: "morning", label: "Morning (before 12:00)" },
+  { value: "evening", label: "Evening (12:00 onward)" },
+];
 
 const MIN_CREDITS = 1;
 const MAX_CREDITS = 30;
@@ -59,6 +81,10 @@ function describeMeetings(section) {
 function CoursePlanGenerator({ studentId, onCoursesAdded }) {
   const [targetCredits, setTargetCredits] = useState(18);
   const [categories, setCategories] = useState(DEFAULT_CATEGORIES);
+  // Scheduling preferences — all days + any time means "no preference".
+  const [selectedDays, setSelectedDays] = useState(() => new Set(DAY_OPTIONS.map((d) => d.day)));
+  const [timeOfDay, setTimeOfDay] = useState("any");
+  const [strictSchedule, setStrictSchedule] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState("");
   const [plan, setPlan] = useState(null); // server response
@@ -69,6 +95,17 @@ function CoursePlanGenerator({ studentId, onCoursesAdded }) {
   const updateCategory = (key, patch) =>
     setCategories((prev) => ({ ...prev, [key]: { ...prev[key], ...patch } }));
 
+  const toggleDay = (day) =>
+    setSelectedDays((prev) => {
+      const next = new Set(prev);
+      if (next.has(day)) next.delete(day);
+      else next.add(day);
+      return next;
+    });
+
+  const allDaysSelected = selectedDays.size === DAY_OPTIONS.length;
+  const hasSchedulePref = !allDaysSelected || timeOfDay !== "any";
+
   const generate = async () => {
     if (!studentId) return;
     const credits = Number(targetCredits);
@@ -78,6 +115,11 @@ function CoursePlanGenerator({ studentId, onCoursesAdded }) {
     }
     if (!CATEGORY_OPTIONS.some(({ key }) => categories[key].enabled)) {
       setError("Pick at least one course category.");
+      return;
+    }
+
+    if (selectedDays.size === 0) {
+      setError("Pick at least one day for your classes.");
       return;
     }
 
@@ -98,6 +140,11 @@ function CoursePlanGenerator({ studentId, onCoursesAdded }) {
         student_id: studentId,
         target_credits: credits,
         categories: payload,
+        schedule: {
+          days: allDaysSelected ? [] : [...selectedDays],
+          timeOfDay,
+          strict: hasSchedulePref && strictSchedule,
+        },
       });
       setPlan(res.data);
       setAddedCodes(new Set());
@@ -123,10 +170,13 @@ function CoursePlanGenerator({ studentId, onCoursesAdded }) {
     if (!studentId || courses.length === 0) return;
     setAddError("");
 
-    const openCourses = courses.filter((c) => c.isOpen && c.section);
-    const requestCourses = courses.filter((c) => !c.isOpen || !c.section);
+    // Senior Project is open every term with no section/time — it is
+    // registered directly (never turned into a "request").
+    const alwaysOpenCourses = courses.filter((c) => c.alwaysOpen || isAlwaysOpenCourse(c.code));
+    const openCourses = courses.filter((c) => !alwaysOpenCourses.includes(c) && c.isOpen && c.section);
+    const requestCourses = courses.filter((c) => !alwaysOpenCourses.includes(c) && (!c.isOpen || !c.section));
 
-    if (openCourses.length > 0) {
+    if (openCourses.length > 0 || alwaysOpenCourses.length > 0) {
       const [regRes, ttRes] = await Promise.all([
         axios.get(`${API_BASE}/registrations/${encodeURIComponent(studentId)}`),
         axios.get(`${API_BASE}/timetable`).catch(() => null),
@@ -165,6 +215,9 @@ function CoursePlanGenerator({ studentId, onCoursesAdded }) {
         courses: [
           ...existingLabels,
           ...openCourses.map((c) => `${c.code} Sec.${c.section.section || "1"}`),
+          ...alwaysOpenCourses
+            .filter((c) => !existingLabels.some((label) => normalizeCourseCode(label) === normalizeCourseCode(c.code)))
+            .map((c) => c.code),
         ],
       });
     }
@@ -255,6 +308,7 @@ function CoursePlanGenerator({ studentId, onCoursesAdded }) {
                 />
                 {label}
               </label>
+              {key !== "senior_project" && (
               <input
                 type="number"
                 min={0}
@@ -266,8 +320,52 @@ function CoursePlanGenerator({ studentId, onCoursesAdded }) {
                 onChange={(e) => updateCategory(key, { count: e.target.value })}
                 aria-label={`Number of ${label} courses`}
               />
+              )}
             </div>
           ))}
+        </div>
+
+        <div className="plan-gen-schedule">
+          <span className="plan-gen-label">Class days &amp; time (optional)</span>
+
+          <div className="plan-gen-days" role="group" aria-label="Preferred class days">
+            {DAY_OPTIONS.map(({ day, label }) => (
+              <button
+                key={day}
+                type="button"
+                className={`plan-gen-day ${selectedDays.has(day) ? "on" : ""}`}
+                aria-pressed={selectedDays.has(day)}
+                onClick={() => toggleDay(day)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+          <div className="plan-gen-times" role="radiogroup" aria-label="Preferred time of day">
+            {TIME_OPTIONS.map(({ value, label }) => (
+              <label key={value} className={`plan-gen-time ${timeOfDay === value ? "on" : ""}`}>
+                <input
+                  type="radio"
+                  name="plan-time-of-day"
+                  value={value}
+                  checked={timeOfDay === value}
+                  onChange={() => setTimeOfDay(value)}
+                />
+                {label}
+              </label>
+            ))}
+          </div>
+
+          <label className="plan-gen-strict">
+            <input
+              type="checkbox"
+              checked={strictSchedule}
+              disabled={!hasSchedulePref}
+              onChange={(e) => setStrictSchedule(e.target.checked)}
+            />
+            Only use these days/times (otherwise it tries every possible section to match, and only falls back when nothing else fits)
+          </label>
         </div>
 
         <button
@@ -346,12 +444,17 @@ function CoursePlanGenerator({ studentId, onCoursesAdded }) {
                       <div className="plan-gen-tags">
                         <span className={`plan-gen-tag cat-${course.category}`}>{course.categoryLabel}</span>
                         <span className={`plan-gen-tag stage-${course.stage}`}>{STAGE_LABELS[course.stage]}</span>
-                        {course.isOpen && course.section ? (
+                        {course.alwaysOpen ? (
+                          <span className="plan-gen-tag time">Open every term</span>
+                        ) : course.isOpen && course.section ? (
                           <span className="plan-gen-tag time">
                             Sec. {course.section.section} · {describeMeetings(course.section)}
                           </span>
                         ) : (
                           <span className="plan-gen-tag not-open">Not on timetable — request</span>
+                        )}
+                        {course.scheduleFit < 1 && (
+                          <span className="plan-gen-tag not-open">Outside your preferred days/time</span>
                         )}
                       </div>
                       {course.reason && <p className="plan-gen-reason">{course.reason}</p>}

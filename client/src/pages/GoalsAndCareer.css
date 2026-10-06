@@ -42,7 +42,7 @@
 .goals-search-wrap input {
   width: 100%;
   box-sizing: border-box;
-  padding: 11px 14px;
+  padding: 11px 40px 11px 14px;
   font-family: inherit;
   font-size: 15px;
   color: var(--text-h);
@@ -214,4 +214,34 @@
   .goals-group-save-btn {
     width: 100%;
   }
+}
+
+/* ✕ button inside the "Choose your group" box — clears the choice.
+   Kept quiet: plain muted icon, only a faint grey circle on hover. */
+.goals-search-clear {
+  position: absolute;
+  top: 50%;
+  right: 10px;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text, #9ca3af);
+  opacity: 0.7;
+  cursor: pointer;
+  transition: background 0.15s ease, opacity 0.15s ease;
+}
+
+.goals-search-clear:hover,
+.goals-search-clear:active {
+  background: rgba(0, 0, 0, 0.07);
+  color: var(--text-h);
+  opacity: 1;
+  transform: translateY(-50%);
 }

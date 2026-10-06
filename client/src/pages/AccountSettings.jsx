@@ -3,6 +3,8 @@ import { KeyRound, CheckCircle2, User } from "lucide-react";
 import { changeAdvisorPassword } from "../data/mockAdvisors.js";
 import { changeAdminPassword } from "../data/mockAdmins.js";
 import "./Profile.css";
+import { validatePasswordStrength, PASSWORD_HINT } from "../utils/password.js";
+import UnsavedNotice from "../components/UnsavedNotice.jsx";
 
 // Shared "Account Settings" page for Advisor and Admin — the one place
 // they change their own password. New Advisor accounts start with a
@@ -29,8 +31,9 @@ function AccountSettings({ userId, role, displayName }) {
       return;
     }
 
-    if (newPassword.length < 6) {
-      setError("New password must contain at least 6 characters.");
+    const passwordProblem = validatePasswordStrength(newPassword);
+    if (passwordProblem) {
+      setError(passwordProblem);
       return;
     }
 
@@ -92,10 +95,11 @@ function AccountSettings({ userId, role, displayName }) {
           <input
             id="new-password"
             type="password"
-            placeholder="At least 6 characters"
+            placeholder="New password"
             value={newPassword}
             onChange={(e) => setNewPassword(e.target.value)}
           />
+          <p className="profile-prereq-note">{PASSWORD_HINT}</p>
 
           <label htmlFor="confirm-password">Confirm new password</label>
           <input
@@ -103,6 +107,11 @@ function AccountSettings({ userId, role, displayName }) {
             type="password"
             value={confirmPassword}
             onChange={(e) => setConfirmPassword(e.target.value)}
+          />
+
+          <UnsavedNotice
+            show={Boolean(currentPassword || newPassword || confirmPassword) && !submitting}
+            text="Your new password is not saved yet — press Update Password."
           />
 
           {error && <p className="profile-error-note">{error}</p>}

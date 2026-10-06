@@ -253,3 +253,240 @@ button.grade-value.is-editable {
   color: #b91c1c;
   font-size: 13px;
 }
+
+/* ---------- Delete button (per course) ---------- */
+.grade-course-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.grade-course-box .grade-delete-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  margin: 0;
+  border-radius: 50%;
+  border: 1px solid #fecaca;
+  background: #fef2f2;
+  color: #dc2626;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.grade-course-box .grade-delete-button svg {
+  display: block;
+  width: 16px;
+  height: 16px;
+  stroke: currentColor;
+  fill: none;
+  opacity: 1;
+}
+
+.grade-course-box .grade-delete-button:hover:not(:disabled) {
+  background: #dc2626;
+  border-color: #dc2626;
+  color: #fff;
+}
+
+.grade-course-box .grade-delete-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+/* ---------- Add Grade ---------- */
+.grade-add-area {
+  display: flex;
+  flex-direction: column;
+}
+
+.grade-add-button {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 40px;
+  padding: 0 18px;
+  border: 0;
+  border-radius: 10px;
+  background: #16a34a;
+  color: #fff;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 1px 2px rgba(16, 24, 40, 0.1);
+  transition: background 0.15s ease, transform 0.1s ease;
+}
+
+.grade-add-button:hover {
+  background: #15803d;
+}
+
+.grade-add-button:active {
+  transform: translateY(1px);
+}
+
+.grade-add-form {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 22px 30px 24px;
+  box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04), 0 1px 3px rgba(16, 24, 40, 0.06);
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.grade-add-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.grade-add-header h3 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text-h);
+}
+
+.grade-add-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.grade-add-close:hover:not(:disabled) {
+  background: var(--accent-bg);
+  color: var(--text-h);
+}
+
+.grade-add-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 14px 16px;
+}
+
+/* Course name gets more room */
+.grade-add-field.is-wide {
+  grid-column: span 2;
+}
+
+.grade-add-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.grade-add-field label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.grade-add-field input,
+.grade-add-field select {
+  width: 100%;
+  box-sizing: border-box;
+  height: 42px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg, #f9fafb);
+  color: var(--text-h);
+  font-size: 15px;
+  font-family: inherit;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.grade-add-field input::placeholder {
+  color: var(--text-muted);
+  opacity: 0.7;
+}
+
+.grade-add-field input:focus,
+.grade-add-field select:focus {
+  outline: none;
+  border-color: #d59b14;
+  box-shadow: 0 0 0 3px rgba(213, 155, 20, 0.2);
+  background: var(--card);
+}
+
+.grade-add-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.grade-add-cancel,
+.grade-add-save {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 40px;
+  padding: 0 18px;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.grade-add-cancel {
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--text-h);
+}
+
+.grade-add-cancel:hover:not(:disabled) {
+  background: var(--accent-bg);
+}
+
+.grade-add-save {
+  border: 0;
+  background: #16a34a;
+  color: #fff;
+}
+
+.grade-add-save:hover:not(:disabled) {
+  background: #15803d;
+}
+
+.grade-add-button:disabled,
+.grade-add-cancel:disabled,
+.grade-add-save:disabled,
+.grade-add-close:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+@media (max-width: 600px) {
+  .grade-add-form {
+    padding: 18px;
+  }
+  .grade-add-field.is-wide {
+    grid-column: span 1;
+  }
+  .grade-add-actions {
+    flex-direction: column-reverse;
+  }
+  .grade-add-cancel,
+  .grade-add-save {
+    width: 100%;
+  }
+}

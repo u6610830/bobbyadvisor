@@ -3,6 +3,7 @@ import axios from "axios";
 import { ClipboardList, Save } from "lucide-react";
 import EditableList from "../components/EditableList.jsx";
 import "./StudentRequestedCourses.css";
+import UnsavedNotice from "../components/UnsavedNotice.jsx";
 
 const API_BASE = import.meta.env.VITE_API_BASE || (import.meta.env.PROD ? "https://api.bobbyadvisor.org" : "http://localhost:3001");
 
@@ -17,6 +18,7 @@ function StudentRequestedCourses({ studentId, onNavigate }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [saveStatus, setSaveStatus] = useState("idle"); // idle | saving | saved | error
+  const [savedSnapshot, setSavedSnapshot] = useState(null); // JSON of last saved/loaded list
 
   const load = () => {
     if (!studentId) {
@@ -34,6 +36,7 @@ function StudentRequestedCourses({ studentId, onNavigate }) {
           .map((row) => `${row.course_code || ""} ${row.course_name || ""}`.trim())
           .filter(Boolean);
         setRequestedCourses(labels);
+        setSavedSnapshot(JSON.stringify([...labels].sort()));
       })
       .catch((err) => {
         console.error("Failed to load requested courses:", err);
@@ -67,6 +70,7 @@ function StudentRequestedCourses({ studentId, onNavigate }) {
     setSaveStatus("saving");
     try {
       await axios.post(`${API_BASE}/requested-courses`, { studentId, courses: requestedCourses });
+      setSavedSnapshot(JSON.stringify([...requestedCourses].sort()));
       setSaveStatus("saved");
       setTimeout(() => setSaveStatus("idle"), 2000);
     } catch (err) {
@@ -148,6 +152,9 @@ function StudentRequestedCourses({ studentId, onNavigate }) {
               {saveStatus === "error" && (
                 <span className="student-req-save-error">Could not save — please try again.</span>
               )}
+              <UnsavedNotice
+                show={saveStatus !== "saving" && savedSnapshot !== null && JSON.stringify([...requestedCourses].sort()) !== savedSnapshot}
+              />
             </div>
           </>
         )}

@@ -21,6 +21,7 @@ import {
   electiveGroupCreditsEarned,
 } from "../utils/studentElectiveCourses.js";
 import "./StudentGraduationCheck.css";
+import UnsavedNotice from "../components/UnsavedNotice.jsx";
 
 const API_BASE = import.meta.env.VITE_API_BASE || (import.meta.env.PROD ? "https://api.bobbyadvisor.org" : "http://localhost:3001");
 
@@ -660,6 +661,7 @@ function StudentGraduationCheck({ studentId, curriculumYear = null, readOnly = f
                             <Save size={14} strokeWidth={2} /> {isSavingGroup ? "Saving..." : "Save"}
                           </button>
                         ))}
+                      {isEditingGroup && !isSavingGroup && <UnsavedNotice show text="Not saved yet — press Save." />}
                     </div>
                   </div>
 

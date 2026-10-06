@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import axios from "axios";
+import { X } from "lucide-react";
 import MultiChoice from "../components/MultiChoice.jsx";
 import { GOAL_OPTIONS, CAREER_OPTIONS } from "../data/goalCareerOptions.js";
 import { getStudentGoalsCareer, setStudentGoalsCareer } from "../utils/goalsCareer.js";
@@ -19,6 +20,7 @@ import {
   setStudentElectiveGroup,
 } from "../utils/electiveGroup.js";
 import "./GoalsAndCareer.css";
+import UnsavedNotice from "../components/UnsavedNotice.jsx";
 
 const API_BASE =
   import.meta.env.VITE_API_BASE ||
@@ -33,10 +35,11 @@ const API_BASE =
 // utils/electiveGroup.js getElectiveGroupOptions), same interaction
 // pattern as the Course Group input on Admin > Upload Table Data — type
 // to filter, click a suggestion to choose it.
-function GroupChoiceInput({ value, options, onSelect, disabled }) {
+function GroupChoiceInput({ value, options, onSelect, onClear, disabled }) {
   const [draft, setDraft] = useState(value || "");
   const [open, setOpen] = useState(false);
   const wrapRef = useRef(null);
+  const inputRef = useRef(null);
 
   useEffect(() => setDraft(value || ""), [value]);
 
@@ -48,13 +51,28 @@ function GroupChoiceInput({ value, options, onSelect, disabled }) {
     return () => document.removeEventListener("mousedown", handleClick);
   }, []);
 
-  const suggestions = options.filter((opt) =>
-    opt.fullName.toLowerCase().includes(draft.trim().toLowerCase())
-  );
+  // When a group is already chosen the box shows its full name, which
+  // would filter the list down to just that one group — so show every
+  // group while the text exactly matches the current choice, letting the
+  // student switch straight to the other one.
+  const query = draft.trim().toLowerCase();
+  const isCurrentChoice = Boolean(value) && draft === value;
+  const suggestions = isCurrentChoice
+    ? options
+    : options.filter((opt) => opt.fullName.toLowerCase().includes(query));
+
+  // The ✕ button: clear the box so the student can pick a different group.
+  const handleClear = () => {
+    setDraft("");
+    setOpen(true);
+    onClear?.();
+    inputRef.current?.focus();
+  };
 
   return (
     <div className="goals-search-wrap" ref={wrapRef}>
       <input
+        ref={inputRef}
         type="text"
         value={draft}
         disabled={disabled}
@@ -66,6 +84,17 @@ function GroupChoiceInput({ value, options, onSelect, disabled }) {
         placeholder="Search your Major Elective group…"
         autoComplete="off"
       />
+      {draft && !disabled && (
+        <button
+          type="button"
+          className="goals-search-clear"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={handleClear}
+          aria-label="Clear group choice"
+        >
+          <X size={16} strokeWidth={2.5} />
+        </button>
+      )}
       {open && suggestions.length > 0 && (
         <ul className="goals-search-dropdown">
           {suggestions.map((opt) => (
@@ -340,6 +369,7 @@ function GoalsAndCareer({ studentId, curriculumYear = null, onNavigate }) {
                 value={pendingFullName}
                 options={groupOptions}
                 onSelect={setPendingGroupId}
+                onClear={() => setPendingGroupId(null)}
                 disabled={groupSaving}
               />
               <button
@@ -351,6 +381,7 @@ function GoalsAndCareer({ studentId, curriculumYear = null, onNavigate }) {
                 {groupSaving ? "Saving…" : "Save"}
               </button>
             </div>
+            <UnsavedNotice show={Boolean(hasUnsavedChange) && !groupSaving} />
             {groupError && <p className="goals-group-error">{groupError}</p>}
             {!groupError && groupMessage && <p className="goals-group-done">{groupMessage}</p>}
 
