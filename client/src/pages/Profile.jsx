@@ -10,6 +10,9 @@ import UnsavedNotice from "../components/UnsavedNotice.jsx";
 
 const API_BASE = import.meta.env.VITE_API_BASE || (import.meta.env.PROD ? "https://api.bobbyadvisor.org" : "http://localhost:3001");
 
+// "No advisor" choice — shown as "Choose advisor" (the same idea as "None for now" on first login).
+const NONE_VALUE = "none";
+
 function Profile({ studentId, advisorId, onAdvisorChange, prereqGroupId }) {
   const [advisors, setAdvisors] = useState(() => getAllAdvisors());
 
@@ -19,7 +22,8 @@ function Profile({ studentId, advisorId, onAdvisorChange, prereqGroupId }) {
 
 
   const currentAdvisor = getAdvisorById(advisorId);
-  const [draftAdvisorId, setDraftAdvisorId] = useState(advisorId || "");
+  const currentAdvisorValue = advisorId || NONE_VALUE;
+  const [draftAdvisorId, setDraftAdvisorId] = useState(currentAdvisorValue);
   const [saved, setSaved] = useState(false);
 
   const batchCode = getBatchCode(studentId);
@@ -71,8 +75,8 @@ function Profile({ studentId, advisorId, onAdvisorChange, prereqGroupId }) {
 
   const handleSave = (e) => {
     e.preventDefault();
-    if (!draftAdvisorId || draftAdvisorId === advisorId) return;
-    onAdvisorChange(draftAdvisorId);
+    if (!draftAdvisorId || draftAdvisorId === currentAdvisorValue) return;
+    onAdvisorChange(draftAdvisorId === NONE_VALUE ? null : draftAdvisorId);
     setSaved(true);
     setTimeout(() => setSaved(false), 2500);
   };
@@ -121,7 +125,7 @@ function Profile({ studentId, advisorId, onAdvisorChange, prereqGroupId }) {
 
         <form className="profile-advisor-form" onSubmit={handleSave}>
           <select value={draftAdvisorId} onChange={(e) => setDraftAdvisorId(e.target.value)}>
-            <option value="">-- Choose your Advisor --</option>
+            <option value={NONE_VALUE}>Choose advisor</option>
             {advisors.map((advisor) => (
               <option key={advisor.id} value={advisor.id}>
                 {advisor.name} — {advisor.department}
@@ -129,19 +133,18 @@ function Profile({ studentId, advisorId, onAdvisorChange, prereqGroupId }) {
             ))}
           </select>
 
-          <button type="submit" disabled={!draftAdvisorId || draftAdvisorId === advisorId}>
-            Record of changes
+          <button type="submit" disabled={!draftAdvisorId || draftAdvisorId === currentAdvisorValue}>
+            Save
           </button>
 
           <UnsavedNotice
-            show={Boolean(draftAdvisorId) && draftAdvisorId !== advisorId}
-            text="You have unsaved changes — press Record of changes to keep them."
+            show={Boolean(draftAdvisorId) && draftAdvisorId !== currentAdvisorValue}
           />
 
           {saved && (
             <p className="profile-saved-note">
               <CheckCircle2 size={16} strokeWidth={2} />
-              <span>Save new Advisor complete</span>
+              <span>Saved</span>
             </p>
           )}
         </form>

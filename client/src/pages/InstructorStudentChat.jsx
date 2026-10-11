@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import axios from "axios";
-import { Send, ArrowLeft, User } from "lucide-react";
+import { Send, ArrowLeft, User, CornerDownLeft } from "lucide-react";
 import { getStudentByAnyId } from "../data/mockStudents.js";
 import { supabase } from "../utils/supabaseClient.js";
 import { cleanId } from "../utils/cleanId.js";
@@ -295,10 +295,8 @@ function InstructorStudentChat({ studentId, advisorId, onBack }) {
             aria-label="Send message"
             disabled={sending || loading}
           >
-            <Send
-              size={18}
-              strokeWidth={2}
-            />
+            <Send size={18} strokeWidth={2} />
+            <CornerDownLeft size={15} strokeWidth={2.4} className="chatbot-enter-icon" aria-hidden="true" />
           </button>
         </form>
       </div>

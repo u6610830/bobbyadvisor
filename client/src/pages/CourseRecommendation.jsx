@@ -1,15 +1,16 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import axios from "axios";
 import { Sparkles, AlertTriangle, X } from "lucide-react";
 import { normalizeCourseCode, extractCourseCodes } from "../utils/courseCode.js";
 import { getCurrentPrereqGroupId } from "../utils/prereqGroup.js";
 import { prereqTextKey } from "../data/prereqGroups.js";
-import { getFinalCourseGrades, isCompletedGrade } from "../utils/graduation.js";
+import { getCurriculumForStudent } from "../utils/curriculum.js";
+import { computePassedAndCredits } from "../utils/earnedCredits.js";
 import { TIMETABLE_DAY_LABELS } from "../data/mockTimetable.js";
 import CoursePlanGenerator from "./CoursePlanGenerator.jsx";
 
 import "./CourseRecommendation.css";
-import { forcedMissingPrereqs } from "../utils/alwaysOpenCourses.js";
+import { seniorProjectProblems } from "../utils/alwaysOpenCourses.js";
 
 const API_BASE =
   import.meta.env.VITE_API_BASE || (import.meta.env.PROD ? "https://api.bobbyadvisor.org" : "http://localhost:3001");
@@ -55,7 +56,11 @@ function CourseRecommendation({ studentId, onNavigate }) {
   const [sectionPicker, setSectionPicker] = useState(null);
   const [openEntries, setOpenEntries] = useState([]);
   const [prereqRows, setPrereqRows] = useState([]);
-  const [passedCodes, setPassedCodes] = useState(() => new Set());
+  const [gradeRows, setGradeRows] = useState([]);
+  const { passedCodes, creditsEarned } = useMemo(
+    () => computePassedAndCredits(gradeRows, studentId ? getCurriculumForStudent(studentId) : null),
+    [gradeRows, studentId]
+  );
 
   const prereqGroupId = studentId ? getCurrentPrereqGroupId(studentId) : null;
   const prereqColumn = prereqTextKey(prereqGroupId);
@@ -113,14 +118,7 @@ function CourseRecommendation({ studentId, onNavigate }) {
       setOpenEntries(timetableRes?.data?.entries || []);
       setPrereqRows(prereqRes?.data?.prerequisites || []);
 
-      const passed = new Set();
-      getFinalCourseGrades(gradesRes?.data || []).forEach((g) => {
-        if (isCompletedGrade(g.grade)) {
-          const code = normalizeCourseCode(g.course_code);
-          if (code) passed.add(code);
-        }
-      });
-      setPassedCodes(passed);
+      setGradeRows(Array.isArray(gradesRes?.data) ? gradesRes.data : []);
     } catch (err) {
       console.error("Failed to load course recommendations:", err);
       setNeedsGoals(Boolean(err.response?.data?.needsGoals));
@@ -143,10 +141,10 @@ function CourseRecommendation({ studentId, onNavigate }) {
   // has the student passed everything it lists? Returns a message string
   // if blocked, or null if clear (or if there's simply no rule to check).
   const checkPrerequisite = (courseCode, courseTitle) => {
-    // Fixed rule: Senior Project II needs Senior Project I passed first.
-    const forcedMissing = forcedMissingPrereqs(courseCode, passedCodes);
-    if (forcedMissing.length > 0) {
-      return `Cannot add ${normalizeCourseCode(courseCode) || courseCode}: has not yet passed ${forcedMissing.join(", ")}.`;
+    // Fixed Senior Project rules: I needs 70+ credits; II needs I passed and 100+ credits.
+    const seniorProblems = seniorProjectProblems(courseCode, { passedCodes, creditsEarned, studentId });
+    if (seniorProblems.length > 0) {
+      return `Cannot add ${normalizeCourseCode(courseCode) || courseCode}: ${seniorProblems.join(" and ")}.`;
     }
     if (!prereqColumn) return null; // no group resolvable — can't check, don't block
     const normalized = normalizeCourseCode(courseCode);

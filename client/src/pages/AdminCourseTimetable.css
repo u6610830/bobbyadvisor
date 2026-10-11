@@ -4,17 +4,6 @@
   gap: 20px;
 }
 
-.timetable-title-pill {
-  display: inline-block;
-  align-self: flex-start;
-  background: var(--role-accent-bg);
-  color: var(--text-h);
-  font-size: 22px;
-  font-weight: 500;
-  padding: 14px 28px;
-  border-radius: 16px;
-}
-
 .timetable-upload-card,
 .timetable-card {
   background: var(--card);

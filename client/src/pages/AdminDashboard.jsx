@@ -131,7 +131,7 @@ function AdminDashboard({ onNavigate }) {
   return (
     <div className="dash-page">
       <div className="dash-head">
-        <span className="dash-title-pill">Dashboard</span>
+        <span className="admin-summary-title-pill">Dashboard</span>
         <button type="button" className="dash-refresh" onClick={load} disabled={loading}>
           <RefreshCw size={15} className={loading ? "spin" : ""} />
           Refresh

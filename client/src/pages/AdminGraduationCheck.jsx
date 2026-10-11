@@ -10,7 +10,8 @@ import {
   calculateGPA,
   checkGraduation,
   getFinalCourseGrades,
-  isCompletedGrade,
+  getMinGradeCRules,
+  passesForCourse,
   prepareCourseRows,
 } from "../utils/graduation.js";
 import { normalizeCourseCode } from "../utils/courseCode.js";
@@ -31,7 +32,7 @@ async function fetchJSON(url) {
   return data;
 }
 
-function mergeCompletedManualCourses(finalGrades, manualCourses) {
+function mergeCompletedManualCourses(finalGrades, manualCourses, minCRules) {
   const byCode = new Map();
   finalGrades.forEach((course) => {
     const code = normalizeCourseCode(course.course_code);
@@ -44,7 +45,7 @@ function mergeCompletedManualCourses(finalGrades, manualCourses) {
       const code = normalizeCourseCode(course.course_code);
       if (!code) return;
       const official = byCode.get(code);
-      if (official && isCompletedGrade(official.grade)) return;
+      if (official && passesForCourse(code, official.grade, minCRules)) return;
       byCode.set(code, {
         course_code: code,
         course_name: course.course_name,
@@ -88,10 +89,14 @@ function AdminGraduationCheck() {
 
       const profile = studentData.student;
       const officialGrades = Array.isArray(gradesData) ? gradesData : [];
-      const finalOfficialGrades = getFinalCourseGrades(officialGrades);
-      const effectiveCourses = mergeCompletedManualCourses(finalOfficialGrades, manualCourses);
-      const courseRows = prepareCourseRows(effectiveCourses);
       const curriculum = getCurriculumForStudent(profile.student_id, profile.curriculum_year);
+      const finalOfficialGrades = getFinalCourseGrades(officialGrades, curriculum);
+      const effectiveCourses = mergeCompletedManualCourses(
+        finalOfficialGrades,
+        manualCourses,
+        getMinGradeCRules(curriculum)
+      );
+      const courseRows = prepareCourseRows(effectiveCourses, curriculum);
       const electiveGroupId =
         electiveGroupData.elective_group || profile.elective_group || null;
       const gpa = calculateGPA(finalOfficialGrades);

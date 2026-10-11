@@ -223,6 +223,10 @@
   color: #DC2626;
 }
 
+.grad-course-status.retake {
+  color: #B45309;
+}
+
 .grad-course-status.withdrawn {
   color: #C2410C;
 }

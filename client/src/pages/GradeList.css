@@ -490,3 +490,9 @@ button.grade-value.is-editable {
     width: 100%;
   }
 }
+/* A grade marked for deletion (applied when Save is pressed). */
+.grade-course-box.pending-delete .grade-course,
+.grade-course-box.pending-delete .grade-value {
+  text-decoration: line-through;
+  opacity: 0.5;
+}

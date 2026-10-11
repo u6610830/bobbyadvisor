@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Target, ArrowRight, LogOut } from "lucide-react";
 import MultiChoice from "../components/MultiChoice.jsx";
-import { GOAL_OPTIONS, CAREER_OPTIONS } from "../data/goalCareerOptions.js";
+import { GOAL_OPTIONS, CAREER_OPTIONS, MAX_GOALS, MAX_CAREER_INTERESTS } from "../data/goalCareerOptions.js";
 import { setStudentGoalsCareer } from "../utils/goalsCareer.js";
 import "./WelcomeGoals.css";
 
@@ -56,9 +56,11 @@ function WelcomeGoals({ studentId, onDone, onSignOut }) {
 
         <div className="welcome-goals-section">
           <h3>Goals</h3>
-          <p className="welcome-goals-choice-help">Choose one or more goals.</p>
+          <p className="welcome-goals-choice-help">Choose the goals that matter to you.</p>
           <MultiChoice
             options={GOAL_OPTIONS}
+            max={MAX_GOALS}
+            hideLimit
             value={goals}
             onChange={setGoals}
             disabled={saving}
@@ -67,9 +69,10 @@ function WelcomeGoals({ studentId, onDone, onSignOut }) {
 
         <div className="welcome-goals-section">
           <h3>Career Interest</h3>
-          <p className="welcome-goals-choice-help">Choose every career area that interests you.</p>
+          <p className="welcome-goals-choice-help">Pick up to {MAX_CAREER_INTERESTS} career areas you are most interested in.</p>
           <MultiChoice
             options={CAREER_OPTIONS}
+            max={MAX_CAREER_INTERESTS}
             value={careerInterests}
             onChange={setCareerInterests}
             disabled={saving}

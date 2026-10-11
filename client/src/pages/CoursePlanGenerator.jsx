@@ -104,7 +104,6 @@ function CoursePlanGenerator({ studentId, onCoursesAdded }) {
     });
 
   const allDaysSelected = selectedDays.size === DAY_OPTIONS.length;
-  const hasSchedulePref = !allDaysSelected || timeOfDay !== "any";
 
   const generate = async () => {
     if (!studentId) return;
@@ -143,7 +142,7 @@ function CoursePlanGenerator({ studentId, onCoursesAdded }) {
         schedule: {
           days: allDaysSelected ? [] : [...selectedDays],
           timeOfDay,
-          strict: hasSchedulePref && strictSchedule,
+          strict: timeOfDay !== "any" && strictSchedule,
         },
       });
       setPlan(res.data);
@@ -327,6 +326,9 @@ function CoursePlanGenerator({ studentId, onCoursesAdded }) {
 
         <div className="plan-gen-schedule">
           <span className="plan-gen-label">Class days &amp; time (optional)</span>
+          <small className="plan-gen-schedule-note">
+            Classes are only placed on the days you keep selected. Remove the days you can&apos;t attend.
+          </small>
 
           <div className="plan-gen-days" role="group" aria-label="Preferred class days">
             {DAY_OPTIONS.map(({ day, label }) => (
@@ -361,10 +363,10 @@ function CoursePlanGenerator({ studentId, onCoursesAdded }) {
             <input
               type="checkbox"
               checked={strictSchedule}
-              disabled={!hasSchedulePref}
+              disabled={timeOfDay === "any"}
               onChange={(e) => setStrictSchedule(e.target.checked)}
             />
-            Only use these days/times (otherwise it tries every possible section to match, and only falls back when nothing else fits)
+            Only use this time of day (otherwise most classes will be in it, and others only when nothing else fits)
           </label>
         </div>
 

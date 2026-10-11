@@ -412,7 +412,7 @@ function AdminCourseTimetable() {
 
   return (
     <div className="timetable-page">
-      <span className="timetable-title-pill">Course Timetable</span>
+      <span className="admin-summary-title-pill">Course Timetable</span>
 
       {dbStatus === "offline" && (
         <p className="timetable-db-warning">

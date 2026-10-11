@@ -2,7 +2,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import axios from "axios";
 import { X, AlertTriangle, Save, Clock, RefreshCcw } from "lucide-react";
 import EditableList from "../components/EditableList.jsx";
-import { ALWAYS_OPEN_COURSES, forcedMissingPrereqs } from "../utils/alwaysOpenCourses.js";
+import { ALWAYS_OPEN_COURSES, seniorProjectProblems } from "../utils/alwaysOpenCourses.js";
+import { computePassedAndCredits } from "../utils/earnedCredits.js";
 import { loadState } from "../utils/storage.js";
 import {
   TIMETABLE_DAY_LABELS,
@@ -228,41 +229,11 @@ function Planner({ studentId, curriculumYear = null }) {
     ? getCurriculumForStudent(studentId, curriculumYear)
     : null;
 
-  // Same pass rules as Dashboard / Graduation Check: A..C and S always pass;
-  // C- and D pass EXCEPT in courses Admin marked "Min C"; F/W/R/I never pass;
-  // each course counts once (a passing retake replaces earlier attempts).
-  const { passedCodes, creditsEarned } = useMemo(() => {
-    const minCRules = getCurriculumGroups(curriculum)
-      .flatMap((block) => block.courses || [])
-      .filter((course) => course.minGradeC)
-      .map((course) => course.code);
-    const passes = (code, grade) => {
-      const g = normalizeGrade(grade);
-      if (COMPLETED_GRADES.has(g)) return true;
-      if (PASSING_WITHOUT_MIN_C.has(g)) return !minCRules.some((rule) => courseMatchesRule(code, rule));
-      return false;
-    };
-    const set = new Set();
-    let earned = 0;
-    // Pick the final attempt using the same Min C-aware rule, so a retake
-    // that finally reaches C replaces an earlier C-/D.
-    const byCode = new Map();
-    gradeRows.forEach((row) => {
-      const code = normalizeCourseCode(row.course_code) || String(row.course_code || "").trim().toUpperCase();
-      if (!code) return;
-      if (!byCode.has(code)) byCode.set(code, []);
-      byCode.get(code).push(row);
-    });
-    byCode.forEach((attempts, code) => {
-      const best = attempts
-        .filter((row) => passes(code, row.grade))
-        .reduce((max, row) => Math.max(max, Number(row.credits) || 0), -1);
-      if (best < 0) return;
-      set.add(code);
-      earned += best;
-    });
-    return { passedCodes: set, creditsEarned: earned };
-  }, [gradeRows, curriculum]);
+  // Same pass rules as Dashboard / Graduation Check (see utils/earnedCredits.js).
+  const { passedCodes, creditsEarned } = useMemo(
+    () => computePassedAndCredits(gradeRows, curriculum),
+    [gradeRows, curriculum]
+  );
 
   const prereqGroupId = studentId ? getCurrentPrereqGroupId(studentId) : null;
   const prereqColumn = prereqTextKey(prereqGroupId);
@@ -447,12 +418,12 @@ function Planner({ studentId, curriculumYear = null }) {
   // "CSX4202"), falls back to matching by course title so a listing
   // quirk can never let a prerequisite check silently get skipped.
   const checkPrerequisite = (courseCode, courseTitle) => {
-    // Fixed rule: Senior Project II needs Senior Project I passed first.
-    const forcedMissing = forcedMissingPrereqs(courseCode, passedCodes);
-    if (forcedMissing.length > 0) {
+    // Fixed Senior Project rules: I needs 70+ credits; II needs I passed and 100+ credits.
+    const seniorProblems = seniorProjectProblems(courseCode, { passedCodes, creditsEarned, studentId });
+    if (seniorProblems.length > 0) {
       return {
         code: normalizeCourseCode(courseCode) || courseCode,
-        reason: `You have not yet passed: ${forcedMissing.join(", ")}`,
+        reason: seniorProblems.join(" and "),
       };
     }
     if (!prereqColumn) return null; // no group set — can't check, don't block

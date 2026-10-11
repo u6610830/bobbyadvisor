@@ -1,3 +1,5 @@
+import { getPrereqGroups } from "../data/prereqGroups.js";
+
 // Determines which prerequisite group a student belongs to automatically
 // from their student ID — no manual selection needed. The ID's first 3
 // digits are the batch code (year + curriculum revision), e.g.
@@ -51,16 +53,19 @@ export function getCurrentPrereqGroupId(studentId) {
 }
 
 /**
- * Load the prerequisite groups from the backend.
- * Used by the Admin Pre-Require page when groups are
- * added or deleted.
+ * Load the prerequisite groups. The backend has no /prereq-groups route yet,
+ * so a failed request must not crash the app: fall back to the built-in
+ * groups (g1 / g2 / g3) and always resolve to an array.
  */
 export async function loadPrereqGroups() {
-  const response = await fetch(`${API_BASE}/prereq-groups`);
-
-  if (!response.ok) {
-    throw new Error("Failed to load prerequisite groups.");
+  try {
+    const response = await fetch(`${API_BASE}/prereq-groups`);
+    if (response.ok) {
+      const data = await response.json();
+      if (Array.isArray(data?.groups) && data.groups.length > 0) return data.groups;
+    }
+  } catch (err) {
+    console.warn("Could not load prerequisite groups, using built-in groups:", err);
   }
-
-  return response.json();
+  return getPrereqGroups();
 }

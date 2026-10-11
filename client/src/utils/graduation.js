@@ -37,6 +37,29 @@ export function isCompletedGrade(grade) {
   return COMPLETED_GRADES.has(normalizeGrade(grade));
 }
 
+/** Codes / ranges of curriculum courses Admin flagged "Min C". */
+export function getMinGradeCRules(curriculum) {
+  return getCurriculumGroups(curriculum)
+    .flatMap((block) => block.courses || [])
+    .filter((course) => course.minGradeC)
+    .map((course) => course.code);
+}
+
+export function requiresMinGradeC(courseCode, minCRules) {
+  return (minCRules || []).some((rule) => courseMatchesRule(courseCode, rule));
+}
+
+/**
+ * The single pass rule used everywhere: A..C and S always pass; C- and D pass
+ * unless the course is "Min C" (then it must be retaken); F/W/R/I never pass.
+ */
+export function passesForCourse(courseCode, grade, minCRules) {
+  const g = normalizeGrade(grade);
+  if (COMPLETED_GRADES.has(g)) return true;
+  if (PASSING_WITHOUT_MIN_C.has(g)) return !requiresMinGradeC(courseCode, minCRules);
+  return false;
+}
+
 function semesterOrder(semester) {
   const [term, year] = String(semester || "0/0").split("/").map(Number);
   return (Number.isFinite(year) ? year : 0) * 10 + (Number.isFinite(term) ? term : 0);
@@ -44,7 +67,8 @@ function semesterOrder(semester) {
 
 /** Keep one effective attempt per course. A passing retake replaces earlier
  * attempts; when no attempt passes, the latest attempt is retained. */
-export function getFinalCourseGrades(grades) {
+export function getFinalCourseGrades(grades, curriculum = null) {
+  const minCRules = getMinGradeCRules(curriculum);
   const attemptsByCode = new Map();
 
   (Array.isArray(grades) ? grades : []).forEach((course) => {
@@ -62,7 +86,9 @@ export function getFinalCourseGrades(grades) {
       if (semesterDifference !== 0) return semesterDifference;
       return String(a.id ?? "").localeCompare(String(b.id ?? ""));
     });
-    const latestPassing = [...sorted].reverse().find((course) => isCompletedGrade(course.grade));
+    const latestPassing = [...sorted].reverse().find((course) =>
+      passesForCourse(course.course_code ?? course.code, course.grade, minCRules)
+    );
     return latestPassing || sorted[sorted.length - 1];
   });
 }
@@ -85,15 +111,21 @@ export function calculateGPA(courses) {
   return Math.round((totalPoints / totalCredits + 1e-9) * 100) / 100;
 }
 
-export function prepareCourseRows(courses) {
+export function prepareCourseRows(courses, curriculum = null) {
+  const minCRules = getMinGradeCRules(curriculum);
   return (Array.isArray(courses) ? courses : [])
     .map((course) => {
       const grade = normalizeGrade(course.grade);
       let status = "Not Completed";
       let statusClass = "not-completed";
-      if (isCompletedGrade(grade)) {
+      const rawCodeForRule = course.course_code ?? course.code;
+      if (passesForCourse(rawCodeForRule, grade, minCRules)) {
         status = "Completed";
         statusClass = "completed";
+      } else if (PASSING_WITHOUT_MIN_C.has(grade)) {
+        // C-/D in a course Admin marked "Min C".
+        status = "Retake";
+        statusClass = "retake";
       } else if (grade === "W" || grade === "R") {
         status = "Withdrawn";
         statusClass = "withdrawn";
@@ -179,8 +211,11 @@ export function checkGraduation(student, curriculum, options = {}) {
     };
   }
 
-  const finalCourses = getFinalCourseGrades(student?.courses || []);
-  const passedCourses = finalCourses.filter((course) => isCompletedGrade(course.grade));
+  const minCRules = getMinGradeCRules(curriculum);
+  const finalCourses = getFinalCourseGrades(student?.courses || [], curriculum);
+  const passedCourses = finalCourses.filter((course) =>
+    passesForCourse(course.course_code ?? course.code, course.grade, minCRules)
+  );
   const passedByCode = new Map();
   passedCourses.forEach((course) => {
     const code = normalizeCourseCode(course.course_code ?? course.code);

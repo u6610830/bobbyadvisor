@@ -60,6 +60,7 @@ function AccountSettings({ userId, role, displayName }) {
 
   return (
     <div className="profile-page">
+      {role === "admin" && <span className="admin-summary-title-pill">Account Settings</span>}
       <div className="profile-card">
         <div className="profile-header">
           <span className="profile-avatar">

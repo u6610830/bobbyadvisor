@@ -45,53 +45,80 @@
   background: #F2FBF7;
 }
 
-/* Advisor > Course Registrations & Requested Courses:
-   everything that shows "who registered / who requested" is mint green. */
-.theme-advisor .reg-admin-count,
-.theme-advisor .reg-admin-section-count,
-.theme-advisor .reg-admin-section-detail {
+/* Course Registrations & Requested Courses: everything that shows
+   "who registered / who requested" uses the portal colour — mint green for
+   Advisor (.theme-advisor), purple for Admin (.reg-purple). */
+:is(.theme-advisor, .reg-purple) .reg-admin-count,
+:is(.theme-advisor, .reg-purple) .reg-admin-section-count,
+:is(.theme-advisor, .reg-purple) .reg-admin-section-detail {
   color: var(--primary-hover);
 }
 
-.theme-advisor .reg-admin-count {
+:is(.theme-advisor, .reg-purple) .reg-admin-count {
   padding: 4px 10px;
   border-radius: 999px;
   background: var(--accent-bg);
 }
 
-.theme-advisor .reg-admin-section-row:hover {
+:is(.theme-advisor, .reg-purple) .reg-admin-section-row:hover {
   background: var(--accent-bg);
 }
 
-.theme-advisor .reg-admin-student-list {
+:is(.theme-advisor, .reg-purple) .reg-admin-student-list {
   border-color: var(--primary);
 }
 
-.theme-advisor .reg-admin-student-list-head {
+:is(.theme-advisor, .reg-purple) .reg-admin-student-list-head {
   background: var(--primary);
   color: #134E3A;
   border-bottom-color: var(--primary);
 }
 
-.theme-advisor .reg-admin-student-id {
+:is(.theme-advisor, .reg-purple) .reg-admin-student-id {
   color: var(--primary-hover);
 }
 
-.theme-advisor .reg-admin-student-num {
+:is(.theme-advisor, .reg-purple) .reg-admin-student-num {
   color: var(--primary);
 }
 
-.theme-advisor .reg-admin-student-name {
+:is(.theme-advisor, .reg-purple) .reg-admin-student-name {
   color: var(--text-h);
 }
 
-.theme-advisor .reg-admin-refresh:hover,
-.theme-advisor .hdc-refresh:hover {
+:is(.theme-advisor, .reg-purple) .reg-admin-refresh:hover,
+:is(.theme-advisor, .reg-purple) .hdc-refresh:hover {
   background: var(--accent-bg);
   color: var(--primary-hover);
 }
 
+/* Advisor keeps its gold title; every Admin page title uses the shared style below. */
 .theme-advisor .admin-summary-title-pill {
   color: var(--primary-hover);
   font-weight: 600;
+}
+
+/* Admin keeps its purple theme on these two pages. */
+.reg-purple {
+  --primary: #8B5CF6;
+  --primary-hover: #6D28D9;
+  --accent-bg: #EDE9FE;
+  --accent-border: rgba(139, 92, 246, 0.4);
+}
+
+.reg-purple .reg-admin-student-list-head {
+  color: #FFFFFF;
+}
+
+/* One page-title style for every Admin page (and Requested Courses for Advisor). */
+.admin-summary-title-pill {
+  display: inline-block;
+  align-self: flex-start;
+  background: var(--role-accent-bg);
+  color: var(--text-h);
+  font-size: 22px;
+  font-weight: 500;
+  line-height: 1.3;
+  padding: 14px 28px;
+  border-radius: 16px;
 }

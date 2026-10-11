@@ -23,3 +23,5 @@ export const CAREER_OPTIONS = [
   "UX/UI Designer",
   "IT Consultant",
 ];
+export const MAX_GOALS = 10; // not shown to the student
+export const MAX_CAREER_INTERESTS = 5;

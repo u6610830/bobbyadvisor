@@ -122,7 +122,7 @@ function Dashboard({ onNavigate, studentId, curriculumYear = null }) {
    */
 
   // Use only the latest attempt per course so a retake doesn't count twice.
-  const finalCourses = getFinalCourseGrades(grades);
+  const finalCourses = getFinalCourseGrades(grades, curriculum);
 
   const overallGPA = finalCourses.length > 0 ? calculateGPA(finalCourses) : null;
 

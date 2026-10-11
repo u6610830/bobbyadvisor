@@ -3,7 +3,8 @@ import axios from "axios";
 import { CheckCircle2, XCircle, HelpCircle } from "lucide-react";
 import { getPrereqGroupLabel, prereqTextKey } from "../data/prereqGroups.js";
 import { extractCourseCodes, normalizeCourseCode } from "../utils/courseCode.js";
-import { getFinalCourseGrades, isCompletedGrade } from "../utils/graduation.js";
+import { getFinalCourseGrades, getMinGradeCRules, passesForCourse } from "../utils/graduation.js";
+import { getCurriculumForStudent } from "../utils/curriculum.js";
 import "./StudentPrerequisites.css";
 
 const API_BASE = import.meta.env.VITE_API_BASE || (import.meta.env.PROD ? "https://api.bobbyadvisor.org" : "http://localhost:3001");
@@ -40,14 +41,17 @@ function StudentPrerequisites({ studentId, prereqGroupId }) {
 
   const passedCodes = useMemo(() => {
     const set = new Set();
-    getFinalCourseGrades(grades).forEach((g) => {
-      if (isCompletedGrade(g.grade)) {
+    // C-/D count as passed unless Admin marked the course "Min C".
+    const curriculum = studentId ? getCurriculumForStudent(studentId) : null;
+    const minCRules = getMinGradeCRules(curriculum);
+    getFinalCourseGrades(grades, curriculum).forEach((g) => {
+      if (passesForCourse(g.course_code, g.grade, minCRules)) {
         const code = normalizeCourseCode(g.course_code);
         if (code) set.add(code);
       }
     });
     return set;
-  }, [grades]);
+  }, [grades, studentId]);
 
   const column = prereqTextKey(groupId);
 

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import axios from "axios";
 import "./GradeList.css";
-import { ArrowLeft, Pencil, Save, Plus, Trash2, X } from "lucide-react";
+import { ArrowLeft, Pencil, Save, Plus, Trash2, X, RotateCcw } from "lucide-react";
 import UnsavedNotice from "../components/UnsavedNotice.jsx";
 
 const API_BASE =
@@ -76,7 +76,8 @@ function GradeList({ onNavigate, studentId }) {
   const [newGrade, setNewGrade] = useState(EMPTY_NEW_GRADE);
 
   // Deleting a grade
-  const [deletingId, setDeletingId] = useState(null);
+  // Grades marked for deletion while editing — nothing is deleted until Save.
+  const [pendingDeleteIds, setPendingDeleteIds] = useState(() => new Set());
 
   useEffect(() => {
     const fetchGrades = async () => {
@@ -119,19 +120,27 @@ function GradeList({ onNavigate, studentId }) {
     setSaveError("");
     setGradeDrafts({});
     setActiveGradeId(null);
+    setPendingDeleteIds(new Set());
     setEditingTerm(term);
   };
 
   const saveEditingTermGrades = async () => {
     const changed = grades.filter(
       (course) =>
+        !pendingDeleteIds.has(course.id) &&
         gradeDrafts[course.id] &&
         gradeDrafts[course.id] !== course.grade
     );
+    const idsToDelete = [...pendingDeleteIds];
 
     try {
       setSaving(true);
       setSaveError("");
+
+      // Apply the deletions marked while editing.
+      await Promise.all(
+        idsToDelete.map((id) => axios.delete(`${API_BASE}/grades/${id}`))
+      );
 
       const updates = await Promise.all(
         changed.map(async (course) => {
@@ -153,19 +162,22 @@ function GradeList({ onNavigate, studentId }) {
       );
 
       setGrades((prev) =>
-        prev.map((course) =>
-          byId.has(course.id)
-            ? {
-                ...course,
-                grade: byId.get(course.id).grade,
-              }
-            : course
-        )
+        prev
+          .filter((course) => !idsToDelete.includes(course.id))
+          .map((course) =>
+            byId.has(course.id)
+              ? {
+                  ...course,
+                  grade: byId.get(course.id).grade,
+                }
+              : course
+          )
       );
 
       setEditingTerm(null);
       setActiveGradeId(null);
       setGradeDrafts({});
+      setPendingDeleteIds(new Set());
     } catch (error) {
       console.error("Failed to save grade:", error);
 
@@ -240,43 +252,17 @@ function GradeList({ onNavigate, studentId }) {
   };
 
   // ------------------------------------------------
-  // DELETE GRADE
+  // DELETE GRADE (staged — applied when Save is pressed)
   // ------------------------------------------------
 
-  const deleteGrade = async (id) => {
-    const confirmed = window.confirm(
-      "Are you sure you want to delete this grade?"
-    );
-
-    if (!confirmed) {
-      return;
-    }
-
-    try {
-      setDeletingId(id);
-      setSaveError("");
-
-      await axios.delete(`${API_BASE}/grades/${id}`);
-
-      setGrades((prev) =>
-        prev.filter((course) => course.id !== id)
-      );
-
-      // If the deleted grade was being edited,
-      // clear its edit state.
-      if (activeGradeId === id) {
-        setActiveGradeId(null);
-      }
-    } catch (error) {
-      console.error("Failed to delete grade:", error);
-
-      setSaveError(
-        error.response?.data?.error ||
-          "Failed to delete grade — please try again."
-      );
-    } finally {
-      setDeletingId(null);
-    }
+  const toggleDeleteGrade = (id) => {
+    setPendingDeleteIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+    if (activeGradeId === id) setActiveGradeId(null);
   };
 
   // ------------------------------------------------
@@ -628,7 +614,9 @@ function GradeList({ onNavigate, studentId }) {
                     return (
                       <li
                         key={course.id}
-                        className="grade-course-box"
+                        className={`grade-course-box${
+                          pendingDeleteIds.has(course.id) ? " pending-delete" : ""
+                        }`}
                       >
                         <span className="grade-course">
                           {course.course_code}{" "}
@@ -684,22 +672,27 @@ function GradeList({ onNavigate, studentId }) {
                             </button>
                           )}
 
-                          {/* DELETE BUTTON */}
+                          {/* DELETE BUTTON — only while editing; applied on Save */}
 
-                          <button
-                            type="button"
-                            className="grade-delete-button"
-                            onClick={() =>
-                              deleteGrade(course.id)
-                            }
-                            disabled={
-                              deletingId === course.id ||
-                              saving
-                            }
-                            title="Delete grade"
-                          >
-                            <Trash2 size={15} />
-                          </button>
+                          {isEditingThisTerm && (
+                            <button
+                              type="button"
+                              className="grade-delete-button"
+                              onClick={() => toggleDeleteGrade(course.id)}
+                              disabled={saving}
+                              title={
+                                pendingDeleteIds.has(course.id)
+                                  ? "Undo delete"
+                                  : "Delete grade"
+                              }
+                            >
+                              {pendingDeleteIds.has(course.id) ? (
+                                <RotateCcw size={15} />
+                              ) : (
+                                <Trash2 size={15} />
+                              )}
+                            </button>
+                          )}
                         </div>
                       </li>
                     );

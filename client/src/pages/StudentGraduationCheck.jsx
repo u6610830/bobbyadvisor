@@ -178,7 +178,7 @@ function StudentGraduationCheck({ studentId, curriculumYear = null, readOnly = f
         const gradeMap = new Map();
         let earned = 0;
 
-        const finalGrades = getFinalCourseGrades(gradesRes.data || []);
+        const finalGrades = getFinalCourseGrades(gradesRes.data || [], currentCurriculum);
 
         finalGrades.forEach((g) => {
           const code = normalizeCourseCode(g.course_code);
@@ -601,7 +601,17 @@ function StudentGraduationCheck({ studentId, curriculumYear = null, readOnly = f
               // keeps the original completed-only view below. Matched on
               // group/label text rather than a fixed list of exact names
               // so it still works if Admin renames one of the three.
-              const isFullListBlock = !/elective/i.test(`${block.group || ""} ${block.label || ""}`);
+              // The chosen Major Elective group (Admin's "choose one" blocks)
+              // also lists every required course when all of its courses are
+              // single codes; pools containing ranges (e.g. CSX4280-4299)
+              // keep the completed-only view because a range is not one course.
+              const isFixedChooseOneBlock =
+                Boolean(block.chooseOneGroup) &&
+                block.courses.length > 0 &&
+                block.courses.every((c) => normalizeCourseCode(c.code));
+              const isFullListBlock =
+                !/elective/i.test(`${block.group || ""} ${block.label || ""}`) ||
+                isFixedChooseOneBlock;
 
               // Normal view for the elective-taxonomy blocks: show only
               // finished courses. Retake stays visible because the

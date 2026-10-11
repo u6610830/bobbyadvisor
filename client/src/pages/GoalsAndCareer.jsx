@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import axios from "axios";
 import { X } from "lucide-react";
 import MultiChoice from "../components/MultiChoice.jsx";
-import { GOAL_OPTIONS, CAREER_OPTIONS } from "../data/goalCareerOptions.js";
+import { GOAL_OPTIONS, CAREER_OPTIONS, MAX_GOALS, MAX_CAREER_INTERESTS } from "../data/goalCareerOptions.js";
 import { getStudentGoalsCareer, setStudentGoalsCareer } from "../utils/goalsCareer.js";
 import {
   getCurriculumForStudent,
@@ -12,7 +12,7 @@ import {
 } from "../utils/curriculum.js";
 import { evaluateCurriculumProgress } from "../utils/curriculumProgress.js";
 import { normalizeCourseCode } from "../utils/courseCode.js";
-import { getFinalCourseGrades, isCompletedGrade } from "../utils/graduation.js";
+import { getFinalCourseGrades, getMinGradeCRules, passesForCourse } from "../utils/graduation.js";
 import {
   getBlockElectiveGroupId,
   getElectiveGroupOptions,
@@ -272,8 +272,9 @@ function GoalsAndCareer({ studentId, curriculumYear = null, onNavigate }) {
         ]);
 
         const completed = new Set();
-        getFinalCourseGrades(gradesRes.data || []).forEach((g) => {
-          if (isCompletedGrade(g.grade)) {
+        const minCRules = getMinGradeCRules(curriculum);
+        getFinalCourseGrades(gradesRes.data || [], curriculum).forEach((g) => {
+          if (passesForCourse(g.course_code, g.grade, minCRules)) {
             const code = normalizeCourseCode(g.course_code);
             if (code) completed.add(code);
           }
@@ -319,12 +320,14 @@ function GoalsAndCareer({ studentId, curriculumYear = null, onNavigate }) {
     <div className="goals-page">
       <div className="goals-card">
         <h3>Goals:</h3>
-        <p className="goals-group-hint">Choose as many as you want.</p>
+        <p className="goals-group-hint">Choose the goals that matter to you.</p>
         {goalsLoading ? (
           <p className="goals-group-hint">Loading…</p>
         ) : (
           <MultiChoice
             options={GOAL_OPTIONS}
+            max={MAX_GOALS}
+            hideLimit
             value={goals}
             onChange={setGoals}
             disabled={goalsSaving}
@@ -334,12 +337,13 @@ function GoalsAndCareer({ studentId, curriculumYear = null, onNavigate }) {
 
       <div className="goals-card">
         <h3>Career Interest:</h3>
-        <p className="goals-group-hint">Select every career area you are interested in.</p>
+        <p className="goals-group-hint">Pick up to {MAX_CAREER_INTERESTS} career areas you are most interested in.</p>
         {goalsLoading ? (
           <p className="goals-group-hint">Loading…</p>
         ) : (
           <MultiChoice
             options={CAREER_OPTIONS}
+            max={MAX_CAREER_INTERESTS}
             value={careerInterests}
             onChange={setCareerInterests}
             disabled={goalsSaving}

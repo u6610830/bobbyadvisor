@@ -112,7 +112,9 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 48px;
+  gap: 4px;
+  min-width: 48px;
+  padding: 0 14px;
   height: 48px;
   flex-shrink: 0;
   background: var(--accent-bg);
@@ -247,4 +249,14 @@
   max-width: 420px;
   margin: 0 auto;
   line-height: 1.6;
+}
+/* Send + "enter" sign: never let either icon shrink away inside the flex
+   button, and keep the enter sign fully visible (no extra fading). */
+.chatbot-input-row button svg {
+  flex-shrink: 0;
+  display: block;
+}
+
+.chatbot-input-row .chatbot-enter-icon {
+  color: currentColor;
 }

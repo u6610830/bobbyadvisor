@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Send, AlertTriangle } from "lucide-react";
+import { Send, AlertTriangle, CornerDownLeft } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import "./AiChatbot.css";
 import logo from "../assets/logo.png";
@@ -316,10 +316,8 @@ function AiChatbot({ studentId }) {
               !draft.trim()
             }
           >
-            <Send
-              size={18}
-              strokeWidth={2}
-            />
+            <Send size={18} strokeWidth={2} />
+            <CornerDownLeft size={15} strokeWidth={2.4} className="chatbot-enter-icon" aria-hidden="true" />
           </button>
         </form>
       </div>
