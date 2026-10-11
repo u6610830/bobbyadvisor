@@ -2663,6 +2663,48 @@ function computeStudentProgress(student, studentGrades, ctx) {
   };
 }
 
+// Passed courses, credits earned and year of study for one student, using the
+// same pass rules as Graduation Check (C-/D don't count in "Min C" courses).
+async function loadPassedAndCredits(studentIdValue) {
+  const id = String(studentIdValue || "").trim();
+  const [studentRes, gradesRes, curriculaRows, groupRows] = await Promise.all([
+    supabase.from("students").select("student_id, curriculum_year").ilike("student_id", id).maybeSingle(),
+    supabase.from("grades").select("course_code, grade, credits").ilike("student_id", id),
+    fetchAllRows(CURRICULA_TABLE, "year", 1000, "year"),
+    fetchAllRows(CURRICULUM_GROUPS_TABLE, "curriculum_year, courses", 1000, "id").catch(() => []),
+  ]);
+  if (gradesRes.error) throw new Error(gradesRes.error.message);
+
+  const years = curriculaRows.map((row) => String(row.year).trim());
+  let year = String(studentRes.data?.curriculum_year || "").trim();
+  if (!years.includes(year)) year = deriveCurriculumYearFromId(id, years) || year;
+
+  const minCRules = groupRows
+    .filter((row) => String(row.curriculum_year).trim() === year)
+    .flatMap((row) => (Array.isArray(row.courses) ? row.courses : []))
+    .filter((course) => course && course.minGradeC)
+    .map((course) => course.code);
+
+  const COMPLETED = new Set(["A", "A-", "B+", "B", "B-", "C+", "C", "S"]);
+  const passedCredits = new Map();
+  (gradesRes.data || []).forEach((g) => {
+    const grade = String(g.grade || "").trim().toUpperCase();
+    const code = normalizeCourseCode(g.course_code);
+    if (!code) return;
+    const ok =
+      COMPLETED.has(grade) ||
+      ((grade === "C-" || grade === "D") && !minCRules.some((rule) => courseMatchesRule(code, rule)));
+    if (!ok) return;
+    passedCredits.set(code, Math.max(passedCredits.get(code) || 0, Number(g.credits) || 0));
+  });
+
+  return {
+    passedCodes: new Set(passedCredits.keys()),
+    creditsEarned: [...passedCredits.values()].reduce((sum, c) => sum + c, 0),
+    yearLevel: getStudentYearLevel(id),
+  };
+}
+
 app.post("/chat/bobby", async (req, res) => {
   try {
     const studentId = String(req.body.student_id || "").trim().toUpperCase();
@@ -3058,9 +3100,6 @@ app.post("/chat/advisor", async (req, res) => {
   try {
     const advisorId = String(req.body.advisor_id || "").trim().toUpperCase();
     const message = String(req.body.message || "").trim();
-    const history = Array.isArray(req.body.history)
-      ? req.body.history.slice(-10)
-      : [];
 
     if (!advisorId) {
       return res.status(400).json({ error: "advisor_id is required." });
@@ -3070,7 +3109,22 @@ app.post("/chat/advisor", async (req, res) => {
       return res.status(400).json({ error: "message is required." });
     }
 
-    // Save the advisor's message
+    // Load the PREVIOUS conversation first (last 10 messages, oldest first).
+    // This must happen before the new question is saved, otherwise the new
+    // question would already be in the history and reach Gemini twice.
+    const { data: recentRows, error: historyError } = await supabase
+      .from("advisor_chat_messages")
+      .select("role, message, created_at")
+      .eq("advisor_id", advisorId)
+      .order("created_at", { ascending: false })
+      .limit(10);
+
+    if (historyError) {
+      console.error("Failed to load advisor chat history:", historyError);
+    }
+    const savedHistory = (recentRows || []).slice().reverse();
+
+    // Now save the advisor's new message.
     const { error: saveUserMessageError } = await supabase
       .from("advisor_chat_messages")
       .insert({
@@ -3080,24 +3134,7 @@ app.post("/chat/advisor", async (req, res) => {
       });
 
     if (saveUserMessageError) {
-      console.error(
-        "Failed to save advisor chat user message:",
-        saveUserMessageError
-      );
-    }
-
-    // Load previous advisor chat history
-    const { data: savedHistory, error: historyError } = await supabase
-      .from("advisor_chat_messages")
-      .select("role, message, created_at")
-      .eq("advisor_id", advisorId)
-      .order("created_at", { ascending: true });
-
-    if (historyError) {
-      console.error(
-        "Failed to load advisor chat history:",
-        historyError
-      );
+      console.error("Failed to save advisor chat user message:", saveUserMessageError);
     }
 
     const { data: ownStudents, error: studentsError } = await supabase
@@ -3242,7 +3279,7 @@ ${JSON.stringify(context)}
   },
 
   // Use saved chat history from Supabase
-  ...(savedHistory || []).slice(-10).map((m) => ({
+  ...savedHistory.map((m) => ({
     role: m.role === "user" ? "user" : "model",
     parts: [{ text: String(m.message || "") }],
   })),
@@ -3527,6 +3564,42 @@ const FORCED_PREREQS = {
 };
 const forcedMissingPrereqs = (code, passedCodes) =>
   (FORCED_PREREQS[normalizeCourseCode(code)] || []).filter((c) => !passedCodes.has(c));
+
+// Senior Project I needs at least 70 credits earned (no year rule); Senior
+// Project II needs at least 100 credits earned (and Senior Project I passed —
+// see FORCED_PREREQS). Keep in sync with client/src/utils/alwaysOpenCourses.js.
+const SENIOR_PROJECT_REQUIREMENTS = {
+  CSX3010: { minCredits: 70 },
+  CSX3011: { minCredits: 100 },
+};
+
+// Year of study from the student ID (first two digits = admission year in
+// B.E., e.g. 66xxxxx -> 2566). The academic year starts in August. Returns
+// null when the ID can't be read, in which case the year rule is not applied.
+function getStudentYearLevel(studentIdValue, now = new Date()) {
+  const digits = String(studentIdValue || "").replace(/\D/g, "");
+  if (digits.length < 3) return null;
+  const admissionBE = 2500 + Number(digits.slice(0, 2));
+  if (!Number.isFinite(admissionBE)) return null;
+  const currentBE = now.getFullYear() + 543;
+  const academicYearBE = now.getMonth() >= 7 ? currentBE : currentBE - 1;
+  const level = academicYearBE - admissionBE + 1;
+  return level >= 1 && level <= 10 ? level : null;
+}
+
+/** Problems stopping a student from taking Senior Project I (empty = fine). */
+function seniorProjectProblems(code, { yearLevel, creditsEarned }) {
+  const rule = SENIOR_PROJECT_REQUIREMENTS[normalizeCourseCode(code)];
+  if (!rule) return [];
+  const problems = [];
+  if (rule.minYear && yearLevel !== null && yearLevel < rule.minYear) {
+    problems.push(`must be in year ${rule.minYear} or higher`);
+  }
+  if (rule.minCredits && creditsEarned < rule.minCredits) {
+    problems.push(`needs at least ${rule.minCredits} credits earned (currently ${creditsEarned})`);
+  }
+  return problems;
+}
 const MAX_GATEWAY_COURSES = 3;
 
 // Maps a curriculum block / course group name onto one of the plan
@@ -3602,7 +3675,10 @@ app.post("/course-plan", async (req, res) => {
       ? [...new Set(rawSchedule.days.map(Number).filter((d) => Number.isInteger(d) && d >= 0 && d <= 6))]
       : [];
     const timeOfDay = ["morning", "evening"].includes(rawSchedule.timeOfDay) ? rawSchedule.timeOfDay : "any";
-    const strictSchedule = Boolean(rawSchedule.strict);
+    // Days are ALWAYS a hard rule: a class is never placed on a day the student
+    // did not pick. "strict" only decides whether the time of day (morning /
+    // evening) is also a hard rule or just a preference.
+    const strictSchedule = Boolean(rawSchedule.strict) && timeOfDay !== "any";
     const hasSchedulePref = preferredDays.length > 0 || timeOfDay !== "any";
 
     const [
@@ -3649,15 +3725,28 @@ app.post("/course-plan", async (req, res) => {
       .filter((row) => !row.is_choose_one_group || (student.elective_group && row.label === student.elective_group));
 
     // ---- What the student has passed / already has planned ----
-    const NON_PASSING_GRADES = new Set(["F", "W", "WF", "I", ""]);
+    // Same pass rules as Graduation Check: A..C and S pass; C- and D pass
+    // EXCEPT in courses Admin marked "Min C"; F/W/WF/R/I never pass.
+    const COMPLETED_FOR_PLAN = new Set(["A", "A-", "B+", "B", "B-", "C+", "C", "S"]);
+    const minCCourseRules = (curriculumGroups || [])
+      .filter((row) => String(row.curriculum_year).trim() === curriculumYear)
+      .flatMap((row) => (Array.isArray(row.courses) ? row.courses : []))
+      .filter((course) => course && course.minGradeC)
+      .map((course) => course.code);
     const passedCredits = new Map();
     (grades || []).forEach((g) => {
-      if (NON_PASSING_GRADES.has(String(g.grade || "").trim().toUpperCase())) return;
+      const grade = String(g.grade || "").trim().toUpperCase();
       const code = normalizeCourseCode(g.course_code);
       if (!code) return;
+      const ok =
+        COMPLETED_FOR_PLAN.has(grade) ||
+        ((grade === "C-" || grade === "D") && !minCCourseRules.some((rule) => courseMatchesRule(code, rule)));
+      if (!ok) return;
       passedCredits.set(code, Math.max(passedCredits.get(code) || 0, Number(g.credits) || 0));
     });
     const passedCodes = new Set(passedCredits.keys());
+    const creditsEarnedForRules = [...passedCredits.values()].reduce((sum, c) => sum + c, 0);
+    const studentYearLevel = getStudentYearLevel(student.student_id);
 
     const registeredCodes = new Set((registrations || []).map((r) => normalizeCourseCode(r.course_code)).filter(Boolean));
     const requestedCodes = new Set((requestedCourses || []).map((r) => normalizeCourseCode(r.course_code)).filter(Boolean));
@@ -3836,6 +3925,9 @@ app.post("/course-plan", async (req, res) => {
       if (timeOfDay === "evening" && start < EVENING_FROM) return false;
       return true;
     };
+    // A section is usable only when ALL its meetings are on the chosen days.
+    const sectionDayOk = (sec) =>
+      preferredDays.length === 0 || sec.meetings.every((m) => preferredDays.includes(m.day));
     // 1 = every meeting fits, 0 = none do.
     const sectionFit = (sec) =>
       sec.meetings.length ? sec.meetings.filter(meetingFits).length / sec.meetings.length : 1;
@@ -3851,22 +3943,44 @@ app.post("/course-plan", async (req, res) => {
       return Math.max(0, ...sortedSections(c.code).map(sectionFit));
     };
 
+    // Senior Project I: at least 70 credits earned; Senior Project II: at least 100.
+    const seniorBlocked = new Map();
     const eligibleBase = [...candidates.values()]
       .filter((c) => categorySettings[c.category]?.enabled)
       .filter((c) => missingPrereqs(c.code).length === 0)
+      .filter((c) => {
+        const problems = seniorProjectProblems(c.code, { yearLevel: studentYearLevel, creditsEarned: creditsEarnedForRules });
+        if (problems.length === 0) return true;
+        seniorBlocked.set(c.code, problems);
+        return false;
+      })
       .filter((c) => !hasTimetable || sectionsByCode.has(c.code) || c.alwaysOpen)
       .map((c) => ({
         ...c,
         number: courseNumberOf(c.code),
         unlocks: [...(unlocksByCode.get(c.code) || [])].sort(),
       }));
-    // Strict mode: only courses with at least one section that fully matches.
-    const eligible = hasSchedulePref && strictSchedule
-      ? eligibleBase.filter((c) => c.alwaysOpen || !hasTimetable || bestFit(c) === 1)
+    // Courses that can't be scheduled at all on the chosen days are left out
+    // (and, in strict mode, also those with no section in the chosen time).
+    const hasUsableSection = (c) =>
+      sortedSections(c.code).some((sec) => sectionDayOk(sec) && (!strictSchedule || sectionFit(sec) === 1));
+    const eligible = hasSchedulePref
+      ? eligibleBase.filter((c) => c.alwaysOpen || !hasTimetable || hasUsableSection(c))
       : eligibleBase;
-    const skippedBySchedule = eligibleBase.length - eligible.length;
-    if (skippedBySchedule > 0) {
-      warnings.push(`${skippedBySchedule} course(s) were left out because none of their sections match your chosen days/times.`);
+    const leftOut = eligibleBase.filter((c) => !eligible.includes(c));
+    if (leftOut.length > 0) {
+      const shown = leftOut.slice(0, 6).map((c) => c.code).join(", ");
+      warnings.push(
+        `${leftOut.length} course(s) were left out because they have no section on your chosen ${
+          strictSchedule ? "days and time" : "days"
+        }: ${shown}${leftOut.length > 6 ? ", …" : ""}.`
+      );
+    }
+    if (categorySettings.senior_project?.enabled) {
+      seniorBlocked.forEach((problems, code) => {
+        if (!SENIOR_PROJECT_REQUIREMENTS[code]) return;
+        warnings.push(`Senior Project (${code}) can't be added: ${problems.join(" and ")}.`);
+      });
     }
 
     // ---- Interest ranking (Gemini) — only affects stage 3 ordering ----
@@ -3926,8 +4040,8 @@ ${JSON.stringify(eligible.slice(0, 150).map((c) => ({ code: c.code, title: c.tit
       if (course.alwaysOpen) return { ok: true, section: null };
       if (!hasTimetable) return { ok: true, section: null };
       const taken = [...busyMeetings, ...selectedMeetings];
-      let options = sortedSections(course.code).filter((sec) =>
-        sec.meetings.every((m) => !taken.some((t) => meetingsOverlap(m, t)))
+      let options = sortedSections(course.code).filter(
+        (sec) => sectionDayOk(sec) && sec.meetings.every((m) => !taken.some((t) => meetingsOverlap(m, t)))
       );
       if (hasSchedulePref) {
         if (strictSchedule || fitOnly) options = options.filter((sec) => sectionFit(sec) === 1);
@@ -4105,6 +4219,7 @@ ${JSON.stringify(eligible.slice(0, 150).map((c) => ({ code: c.code, title: c.tit
           ];
           const better = sortedSections(entry.code).find(
             (sec) =>
+              sectionDayOk(sec) &&
               sectionFit(sec) > entry.scheduleFit &&
               sec.meetings.every((m) => !others.some((o) => meetingsOverlap(m, o)))
           );
@@ -5072,32 +5187,36 @@ app.post("/registrations", async (req, res) => {
       }
     }
 
-    // Senior Project II needs Senior Project I passed — enforced even when
-    // the student has no Pre-Require group or the table has no row for it.
-    if (courseList.some((course) => FORCED_PREREQS[normalizeCourseCode(course.course_code)])) {
-      const { data: forcedGrades, error: forcedGradesError } = await supabase
-        .from("grades")
-        .select("course_code, grade")
-        .ilike("student_id", String(studentId).trim());
-      if (forcedGradesError) return res.status(500).json({ error: forcedGradesError.message });
+    // Senior Project rules — enforced even when the student has no Pre-Require
+    // group or the table has no row for it:
+    //  - Senior Project II needs Senior Project I passed;
+    //  - Senior Project I needs at least 70 credits; Senior Project II needs at least 100.
+    const isSeniorRuleCourse = (course) => {
+      const code = normalizeCourseCode(course.course_code);
+      return Boolean(FORCED_PREREQS[code] || SENIOR_PROJECT_REQUIREMENTS[code]);
+    };
+    if (courseList.some(isSeniorRuleCourse)) {
+      let progress;
+      try {
+        progress = await loadPassedAndCredits(studentId);
+      } catch (progressError) {
+        return res.status(500).json({ error: progressError.message });
+      }
 
-      const NOT_PASSED = new Set(["F", "W", "WF", "I", "R", ""]);
-      const forcedPassed = new Set(
-        (forcedGrades || [])
-          .filter((g) => !NOT_PASSED.has(String(g.grade || "").trim().toUpperCase()))
-          .map((g) => normalizeCourseCode(g.course_code))
-          .filter(Boolean)
-      );
       const forcedBlocked = courseList
-        .map((course) => ({
-          courseCode: course.course_code,
-          missingCourses: forcedMissingPrereqs(course.course_code, forcedPassed),
-        }))
-        .filter((item) => item.missingCourses.length > 0);
+        .filter(isSeniorRuleCourse)
+        .map((course) => {
+          const problems = [];
+          const missing = forcedMissingPrereqs(course.course_code, progress.passedCodes);
+          if (missing.length > 0) problems.push(`has not yet passed ${missing.join(", ")}`);
+          problems.push(...seniorProjectProblems(course.course_code, progress));
+          return { courseCode: course.course_code, problems };
+        })
+        .filter((item) => item.problems.length > 0);
 
       if (forcedBlocked.length > 0) {
         return res.status(422).json({
-          error: `Cannot save ${forcedBlocked[0].courseCode}: has not yet passed ${forcedBlocked[0].missingCourses.join(", ")}.`,
+          error: `Cannot save ${forcedBlocked[0].courseCode}: ${forcedBlocked[0].problems.join(" and ")}.`,
           blockedCourses: forcedBlocked,
         });
       }
@@ -5672,16 +5791,17 @@ app.get("/student-advisor/:studentId", async (req, res) => {
 app.put("/student-advisor/:studentId", async (req, res) => {
   try {
     const studentId = String(req.params.studentId || "").trim().toUpperCase();
+    // An empty advisorId means "no advisor for now" (the student removed it).
     const advisorId = String(req.body.advisorId || "").trim().toUpperCase();
 
-    if (!studentId || !advisorId) {
-      return res.status(400).json({ error: "Student ID and Advisor ID are required." });
+    if (!studentId) {
+      return res.status(400).json({ error: "Student ID is required." });
     }
 
     const { data, error } = await supabase
       .from("students")
       .upsert(
-        { student_id: studentId, advisor_id: advisorId },
+        { student_id: studentId, advisor_id: advisorId || null },
         { onConflict: "student_id" }
       )
       .select("student_id, advisor_id")
@@ -6195,21 +6315,42 @@ app.put("/courses/:courseCode", async (req, res) => {
       });
     }
 
-    const { data, error } = await supabase
-      .from(COURSES_TABLE)
-      .update({
-        course_title: courseTitle,
-        credits,
-        description,
-        course_group: courseGroup || null
-      })
-      .eq("course_code", courseCode)
-      .select()
-      .single();
+    // Match the course by the code exactly as stored in the table first (the
+    // Admin page sends the stored value), then by its normalized form. Rows
+    // stored as "CSX 1001" never match the normalized "CSX1001", which is what
+    // made .single() fail with "Cannot coerce the result to a single JSON
+    // object". Updating without .single() also avoids failing when a code
+    // happens to be duplicated.
+    const rawCode = String(req.params.courseCode || "").trim();
+    const updates = {
+      course_title: courseTitle,
+      credits,
+      description,
+      course_group: courseGroup || null
+    };
 
-    if (error) {
-      return res.status(500).json({
-        error: error.message
+    let data = null;
+    for (const candidate of [...new Set([rawCode, courseCode])]) {
+      const result = await supabase
+        .from(COURSES_TABLE)
+        .update(updates)
+        .eq("course_code", candidate)
+        .select();
+
+      if (result.error) {
+        return res.status(500).json({
+          error: result.error.message
+        });
+      }
+      if (result.data && result.data.length > 0) {
+        data = result.data[0];
+        break;
+      }
+    }
+
+    if (!data) {
+      return res.status(404).json({
+        error: `Course ${rawCode || courseCode} was not found.`
       });
     }
 
