@@ -4,6 +4,7 @@ import {
   RefreshCcw,
   Users,
   ChevronDown,
+  Search,
 } from "lucide-react";
 
 import { getAllStudentsForAdmin } from "../utils/students.js";
@@ -78,20 +79,28 @@ function AdminCourseRegistrations({
   const [error, setError] =
     useState("");
 
-  // Which "<courseCode>::<section>" rows currently have their student list
-  // open. Student IDs stay hidden until the advisor asks for them.
-  const [expandedSections, setExpandedSections] = useState(
-    () => new Set()
-  );
+  const [studentSearch, setStudentSearch] = useState("");
 
-  const toggleSection = (key) => {
+  // A course may have only one open section at a time. Sections in other
+  // courses stay open, so the admin can compare different courses.
+  const [expandedSections, setExpandedSections] = useState(() => new Set());
+
+  const toggleSection = (courseCode, sectionKey) => {
     setExpandedSections((prev) => {
       const next = new Set(prev);
-      if (next.has(key)) {
-        next.delete(key);
-      } else {
-        next.add(key);
+
+      if (next.has(sectionKey)) {
+        next.delete(sectionKey);
+        return next;
       }
+
+      // Close another section only when it belongs to this same course.
+      for (const key of next) {
+        if (key.startsWith(`${courseCode}::`)) {
+          next.delete(key);
+        }
+      }
+      next.add(sectionKey);
       return next;
     });
   };
@@ -123,6 +132,18 @@ function AdminCourseRegistrations({
 
     return map;
   }, [roster]);
+
+  // Search uses a student ID (for example U6610001) and keeps only the
+  // courses in that student's saved plan visible.
+  const visibleRegistrations = useMemo(() => {
+    const query = studentSearch.trim().toUpperCase();
+
+    if (!query) return registrations;
+
+    return registrations.filter((row) =>
+      String(row.student_id || "").toUpperCase().includes(query)
+    );
+  }, [registrations, studentSearch]);
 
   // ------------------------------------------------
   // Load registrations
@@ -178,7 +199,7 @@ function AdminCourseRegistrations({
   const byCourse = useMemo(() => {
     const groups = new Map();
 
-    registrations.forEach((row) => {
+    visibleRegistrations.forEach((row) => {
       const courseCode =
         String(
           row.course_code || ""
@@ -214,7 +235,7 @@ function AdminCourseRegistrations({
         );
       }
     );
-  }, [registrations]);
+  }, [visibleRegistrations]);
 
   // ------------------------------------------------
   // Total registered students
@@ -298,6 +319,17 @@ function AdminCourseRegistrations({
                 {byCourse.length}
               </strong>
             </span>
+
+            <label className="reg-admin-student-search">
+              <Search size={16} strokeWidth={2} aria-hidden="true" />
+              <input
+                type="search"
+                value={studentSearch}
+                onChange={(event) => setStudentSearch(event.target.value)}
+                placeholder="Search student ID (e.g. U6610001)"
+                aria-label="Search registered courses by student ID"
+              />
+            </label>
           </div>
         )}
 
@@ -328,8 +360,9 @@ function AdminCourseRegistrations({
         !error &&
         byCourse.length === 0 && (
           <p className="reg-admin-empty">
-            No student has saved a course
-            selection yet.
+            {studentSearch.trim()
+              ? `No registered courses found for ${studentSearch.trim()}.`
+              : "No student has saved a course selection yet."}
           </p>
         )}
 
@@ -382,7 +415,7 @@ function AdminCourseRegistrations({
                               type="button"
                               className="reg-admin-section-row"
                               onClick={() =>
-                                toggleSection(sectionKey)
+                                toggleSection(courseCode, sectionKey)
                               }
                               aria-expanded={isOpen}
                             >

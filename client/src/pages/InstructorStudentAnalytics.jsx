@@ -6,24 +6,22 @@ import {
   RefreshCcw,
   GraduationCap,
   Send,
-  Check,
-  X,
 } from "lucide-react";
 
 import StudentGraduationCheck from "./StudentGraduationCheck.jsx";
 import { normalizeCourseCode } from "../utils/courseCode.js";
+import {
+  getFinalCourseGrades,
+  getMinGradeCRules,
+  normalizeGrade,
+  passesForCourse,
+} from "../utils/graduation.js";
+import { getCurriculumForStudent } from "../utils/curriculum.js";
 
 import "./InstructorStudentAnalytics.css";
 
 const API_BASE =
-  import.meta.env.VITE_API_BASE || (import.meta.env.PROD ? "https://api.bobbyadvisor.org" : "http://localhost:3001");
-
-// Status of the student's saved Planner Course list (planner_approvals).
-const APPROVAL_LABELS = {
-  pending: "Pending Approval",
-  approved: "Approved",
-  rejected: "Rejected",
-};
+  import.meta.env.VITE_API_BASE || "http://localhost:3001";
 
 // --------------------------------------------------
 // Grade points
@@ -41,17 +39,6 @@ const GRADE_POINTS = {
   D: 1.0,
   F: 0.0,
 };
-
-const PASSING_GRADES = new Set([
-  "A",
-  "A-",
-  "B+",
-  "B",
-  "B-",
-  "C+",
-  "C",
-  "S",
-]);
 
 // --------------------------------------------------
 // Helpers
@@ -105,17 +92,26 @@ function calculateGPA(grades) {
   );
 }
 
-function calculateCredits(grades) {
-  return grades.reduce((total, row) => {
-    const grade = String(row.grade || "")
-      .trim()
-      .toUpperCase();
+function calculateCredits(grades, curriculum) {
+  // Use the same final-attempt and minimum-grade rules as Graduation Check.
+  // This prevents retaken courses from being counted more than once.
+  const finalCourses = getFinalCourseGrades(grades, curriculum);
+  const minCRules = getMinGradeCRules(curriculum);
 
-    if (!PASSING_GRADES.has(grade)) {
-      return total;
+  return finalCourses.reduce((total, course) => {
+    const grade = normalizeGrade(course.grade);
+    const credits = Number(course.credits);
+    const courseCode = course.course_code ?? course.code;
+
+    if (
+      passesForCourse(courseCode, grade, minCRules) &&
+      Number.isFinite(credits) &&
+      credits > 0
+    ) {
+      return total + credits;
     }
 
-    return total + Number(row.credits || 0);
+    return total;
   }, 0);
 }
 
@@ -141,9 +137,6 @@ const studentEmail =
 
   const [grades, setGrades] = useState([]);
   const [savedCourses, setSavedCourses] = useState([]);
-  const [planApproval, setPlanApproval] = useState(null); // planner_approvals row, or null
-  const [reviewingPlan, setReviewingPlan] = useState(false);
-  const [planReviewError, setPlanReviewError] = useState("");
 
   // course_code -> course_title, from Admin's All Courses catalog, so
   // Registered Courses below can show the course name, not just the code.
@@ -228,7 +221,6 @@ const studentEmail =
     if (!actualStudentId) {
       setGrades([]);
       setSavedCourses([]);
-      setPlanApproval(null);
       setLoadingGrades(false);
       setLoadingSavedCourses(false);
       setError("");
@@ -280,8 +272,6 @@ const studentEmail =
 
         setGrades(gradeData);
         setSavedCourses(registrationData);
-        setPlanApproval(registrationsResponse.data?.approval || null);
-        setPlanReviewError("");
       } catch (error) {
         if (cancelled) {
           return;
@@ -299,7 +289,6 @@ const studentEmail =
 
         setGrades([]);
         setSavedCourses([]);
-        setPlanApproval(null);
       } finally {
         if (!cancelled) {
           setLoadingGrades(false);
@@ -353,14 +342,19 @@ const studentEmail =
   // Calculated statistics
   // --------------------------------------------------
 
+  const curriculum = useMemo(
+    () => getCurriculumForStudent(actualStudentId),
+    [actualStudentId]
+  );
+
   const gpa = useMemo(
     () => calculateGPA(grades),
     [grades]
   );
 
   const credits = useMemo(
-    () => calculateCredits(grades),
-    [grades]
+    () => calculateCredits(grades, curriculum),
+    [grades, curriculum]
   );
 
   // --------------------------------------------------
@@ -465,28 +459,6 @@ const studentEmail =
     }
   };
 
-  // Approve / Reject the student's saved Planner Course list. The student
-  // sees the result as the Status button next to Planner Course on Planner.
-  const handleReviewPlan = async (status) => {
-    if (!actualStudentId || !advisorId) return;
-    setReviewingPlan(true);
-    setPlanReviewError("");
-    try {
-      const { data } = await axios.patch(
-        `${API_BASE}/planner-approvals/${encodeURIComponent(actualStudentId)}`,
-        { advisorId, status }
-      );
-      setPlanApproval(data?.approval || null);
-    } catch (error) {
-      console.error("Failed to review planner course:", error);
-      setPlanReviewError(
-        error.response?.data?.error || "Could not update the plan status. Please try again."
-      );
-    } finally {
-      setReviewingPlan(false);
-    }
-  };
-
   const handleRefresh = async () => {
     if (!actualStudentId) {
       return;
@@ -524,7 +496,6 @@ const studentEmail =
         registrationsResponse.data?.registrations ||
           []
       );
-      setPlanApproval(registrationsResponse.data?.approval || null);
     } catch (error) {
       console.error(
         "Failed to refresh student data:",
@@ -649,6 +620,8 @@ const studentEmail =
             type="button"
             className="analytics-chat-btn analytics-message-btn"
             onClick={() => {
+              // Opening the chat marks the student's messages as read.
+              // Clear this local badge immediately so it feels responsive.
               setMessageUnreadCount(0);
               onOpenChat(actualStudentId);
             }}
@@ -834,44 +807,9 @@ const studentEmail =
       --------------------------------------------- */}
 
       <div className="analytics-card">
-        <div className="analytics-plan-head">
-          <h3>
-            Planned Course
-          </h3>
-
-          {!loadingSavedCourses && savedCourses.length > 0 && (
-            <div className="analytics-plan-actions">
-              <span
-                className={`analytics-plan-status analytics-plan-${planApproval?.status || "none"}`}
-              >
-                Status:{" "}
-                {planApproval
-                  ? APPROVAL_LABELS[planApproval.status] || planApproval.status
-                  : "Not Submitted"}
-              </span>
-              <button
-                type="button"
-                className="analytics-plan-btn analytics-plan-approve"
-                onClick={() => handleReviewPlan("approved")}
-                disabled={reviewingPlan || planApproval?.status === "approved"}
-              >
-                <Check size={14} strokeWidth={2.5} /> Approve
-              </button>
-              <button
-                type="button"
-                className="analytics-plan-btn analytics-plan-reject"
-                onClick={() => handleReviewPlan("rejected")}
-                disabled={reviewingPlan || planApproval?.status === "rejected"}
-              >
-                <X size={14} strokeWidth={2.5} /> Reject
-              </button>
-            </div>
-          )}
-        </div>
-
-        {planReviewError && (
-          <p className="analytics-plan-error">{planReviewError}</p>
-        )}
+        <h3>
+          Registered Courses
+        </h3>
 
         {loadingSavedCourses && (
           <p>Loading...</p>

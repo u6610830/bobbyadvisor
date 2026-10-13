@@ -88,6 +88,47 @@
   gap: 5px;
 }
 
+.reg-admin-student-search {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 180px;
+  width: 180px;
+  min-width: 0;
+  margin-left: auto;
+  padding: 6px 10px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--text-muted, #667085);
+}
+
+.reg-admin-student-search input {
+  flex: 1;
+  width: auto;
+  min-width: 0;
+  border: 0;
+  padding: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--text-h);
+  font: inherit;
+  font-size: 12px;
+}
+
+.reg-admin-student-search:focus-within {
+  border-color: var(--role-primary, #7C3AED);
+  box-shadow: 0 0 0 3px var(--role-accent-bg, #EDE9FE);
+}
+
+@media (max-width: 680px) {
+  .reg-admin-student-search {
+    flex-basis: 100%;
+    width: 100%;
+    margin-left: 0;
+  }
+}
+
 .reg-admin-card-head h4 {
   margin: 0;
   color: var(--text-h);
