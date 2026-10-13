@@ -94,9 +94,12 @@ export async function addAdvisor({ name, department, email }) {
 /** Removes an advisor via the API (seed advisors are protected — the
  * server rejects those). Updates the cache on success. Returns
  * { ok: true } or { ok: false, reason }. */
-export async function removeAdvisor(id) {
+export async function removeAdvisor(id, { adminId = "", adminPassword = "" } = {}) {
   try {
-    await axios.delete(`${API_BASE}/advisors/${encodeURIComponent(id)}`);
+    // The server re-checks the admin's password before deleting.
+    await axios.delete(`${API_BASE}/advisors/${encodeURIComponent(id)}`, {
+      data: { admin_id: adminId, admin_password: adminPassword },
+    });
 
     const updated = getAllAdvisors().filter(
       (a) => a.id.toUpperCase() !== id.trim().toUpperCase()

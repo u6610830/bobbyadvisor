@@ -5,6 +5,7 @@ import {
   Lock,
   Mail,
   GraduationCap,
+  UserCheck,
   ArrowRight,
   CheckCircle2,
   AlertTriangle,
@@ -12,6 +13,7 @@ import {
 
 import { getCurriculumYearForStudent, syncCurriculaFromServer } from "../utils/curriculum.js";
 import { getPrereqGroupLabel } from "../data/prereqGroups.js";
+import { getAllAdvisors, syncAdvisorsFromServer } from "../data/mockAdvisors.js";
 import { getCurrentPrereqGroupId } from "../utils/prereqGroup.js";
 
 import "./Register.css";
@@ -50,6 +52,14 @@ function Register({ onBackToLogin, microsoftAccount = null, onMicrosoftRegistere
   const [reasons, setReasons] = useState([]);
   const [submitting, setSubmitting] = useState(false);
   const [success, setSuccess] = useState(null);
+
+  // Optional: "" means "None for now". Can be changed later on the Profile page.
+  const [advisorId, setAdvisorId] = useState("");
+  const [advisors, setAdvisors] = useState(() => getAllAdvisors());
+
+  useEffect(() => {
+    syncAdvisorsFromServer().then(() => setAdvisors(getAllAdvisors()));
+  }, []);
 
   const isMicrosoftRegistration = Boolean(microsoftAccount?.accessToken);
   const previewStudentId = deriveStudentId(email);
@@ -117,8 +127,9 @@ function Register({ onBackToLogin, microsoftAccount = null, onMicrosoftRegistere
       // email, so that account is confirmed immediately, but it still gets
       // the same password so the student can also sign in the normal way
       // afterward, not only via the Microsoft button.
-      // Advisor isn't collected here — new students start with no Advisor
-      // and are asked to choose one (or "None") right after signing in.
+      // Advisor is optional here ("" = None). A student who leaves it empty
+      // is still asked to choose one right after signing in, and can change
+      // it any time on the Profile page.
       const endpoint = isMicrosoftRegistration
         ? `${API_BASE}/students/microsoft`
         : `${API_BASE}/students`;
@@ -129,6 +140,7 @@ function Register({ onBackToLogin, microsoftAccount = null, onMicrosoftRegistere
             curriculum_year: curriculumYear,
             access_token: microsoftAccount.accessToken,
             password,
+            advisor_id: advisorId || null,
           }
         : {
             student_id: normalizedStudentId,
@@ -136,6 +148,7 @@ function Register({ onBackToLogin, microsoftAccount = null, onMicrosoftRegistere
             email: normalizedEmail,
             curriculum_year: curriculumYear,
             password,
+            advisor_id: advisorId || null,
           };
 
       const response = await fetch(endpoint, {
@@ -373,6 +386,28 @@ function Register({ onBackToLogin, microsoftAccount = null, onMicrosoftRegistere
           </div>
           <p className="register-hint">
             Curriculum Year is selected automatically from your Student ID.
+          </p>
+
+          <label htmlFor="reg-advisor">Advisor (optional):</label>
+
+          <div className="register-input">
+            <UserCheck size={18} strokeWidth={2} />
+            <select
+              id="reg-advisor"
+              value={advisorId}
+              onChange={(e) => setAdvisorId(e.target.value)}
+            >
+              <option value="">None for now</option>
+              {advisors.map((advisor) => (
+                <option key={advisor.id} value={advisor.id}>
+                  {advisor.name}
+                  {advisor.department ? ` — ${advisor.department}` : ""}
+                </option>
+              ))}
+            </select>
+          </div>
+          <p className="register-hint">
+            You can change your Advisor later on the Profile page.
           </p>
 
           {reasons.length > 0 && (

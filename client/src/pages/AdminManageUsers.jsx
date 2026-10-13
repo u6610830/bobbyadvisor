@@ -38,7 +38,7 @@ const ROLE_LABELS = {
 
 const emptyAdvisorDraft = { name: "", department: "", email: "" };
 
-function AdminManageUsers() {
+function AdminManageUsers({ adminId = "" }) {
   const [students, setStudents] = useState([]);
   const [loadingStudents, setLoadingStudents] = useState(true);
   const [studentsError, setStudentsError] = useState("");
@@ -167,16 +167,68 @@ function AdminManageUsers() {
     }
   };
 
-  const handleRemoveAdvisor = async (id, name) => {
-    if (!window.confirm(`Remove advisor ${name} (${id})? Students currently assigned to them will keep the old ID until reassigned.`)) {
+  // ---- Delete a user (student or advisor) ----
+  const [deleteTarget, setDeleteTarget] = useState(null); // { id, name, role }
+  const [deletePassword, setDeletePassword] = useState("");
+  const [deleteError, setDeleteError] = useState("");
+  const [deleting, setDeleting] = useState(false);
+
+  const openDelete = (user) => {
+    setDeleteTarget({ id: user.id, name: user.name, role: user.role });
+    setDeletePassword("");
+    setDeleteError("");
+  };
+
+  const closeDelete = () => {
+    if (deleting) return;
+    setDeleteTarget(null);
+  };
+
+  const handleConfirmDelete = async (e) => {
+    e.preventDefault();
+    if (!deleteTarget) return;
+    if (!deletePassword) {
+      setDeleteError("Enter your admin password to confirm.");
       return;
     }
-    const result = await removeAdvisor(id);
-    if (!result.ok) {
-      window.alert(result.reason || "Failed to remove advisor.");
-      return;
+
+    setDeleting(true);
+    setDeleteError("");
+    try {
+      if (deleteTarget.role === "instructor") {
+        const result = await removeAdvisor(deleteTarget.id, {
+          adminId,
+          adminPassword: deletePassword,
+        });
+        if (!result.ok) {
+          setDeleteError(result.reason || "Failed to delete advisor.");
+          return;
+        }
+        // The server un-assigns this advisor's students; mirror that here.
+        setStudents((prev) =>
+          prev.map((s) =>
+            String(s.advisor_id || "").toUpperCase() === deleteTarget.id.toUpperCase()
+              ? { ...s, advisor_id: null }
+              : s
+          )
+        );
+        setAdvisorVersion((v) => v + 1);
+      } else {
+        await axios.delete(
+          `${API_BASE}/students/${encodeURIComponent(deleteTarget.id)}`,
+          { data: { admin_id: adminId, admin_password: deletePassword } }
+        );
+        setStudents((prev) => prev.filter((s) => s.student_id !== deleteTarget.id));
+      }
+      setDeleteTarget(null);
+    } catch (error) {
+      console.error("Failed to delete user:", error);
+      setDeleteError(
+        error.response?.data?.error || error.message || "Failed to delete user."
+      );
+    } finally {
+      setDeleting(false);
     }
-    setAdvisorVersion((v) => v + 1);
   };
 
   // ---- Reassign a student's advisor ----
@@ -309,14 +361,16 @@ function AdminManageUsers() {
                   )}
                 </td>
                 <td className="mu-actions-cell">
-                  {u.role === "instructor" && u.addedByAdmin && (
+                  {(u.role === "instructor" || u.role === "student") && (
                     <button
                       type="button"
                       className="mu-remove-btn"
-                      onClick={() => handleRemoveAdvisor(u.id, u.name)}
-                      title="Remove advisor"
+                      onClick={() => openDelete(u)}
+                      title={`Delete ${ROLE_LABELS[u.role].toLowerCase()}`}
+                      aria-label={`Delete ${ROLE_LABELS[u.role].toLowerCase()} ${u.name}`}
                     >
-                      <Trash2 size={14} strokeWidth={2} />
+                      <Trash2 size={15} strokeWidth={2} aria-hidden="true" />
+                      <span>Delete</span>
                     </button>
                   )}
                 </td>
@@ -383,6 +437,69 @@ function AdminManageUsers() {
                 <button type="submit" className="mu-btn-primary" disabled={savingAdvisor}>
                   <Users size={15} strokeWidth={2} />
                   <span>{savingAdvisor ? "Adding…" : "Add Advisor"}</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {deleteTarget && (
+        <div className="mu-modal-backdrop" onClick={closeDelete}>
+          <div className="mu-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="mu-modal-head">
+              <h4>
+                <Trash2 size={18} strokeWidth={2} />
+                <span>Delete {ROLE_LABELS[deleteTarget.role]}</span>
+              </h4>
+              <button type="button" className="mu-modal-close" onClick={closeDelete}>
+                <X size={18} />
+              </button>
+            </div>
+
+            <form onSubmit={handleConfirmDelete} className="mu-modal-form">
+              <p className="mu-delete-warning">
+                {deleteTarget.role === "student" ? (
+                  <>
+                    This permanently deletes <strong>{deleteTarget.name}</strong> (
+                    {deleteTarget.id}), their login account, and all of their data
+                    (grades, plans, registrations and chat history). This can&apos;t
+                    be undone.
+                  </>
+                ) : (
+                  <>
+                    This permanently deletes <strong>{deleteTarget.name}</strong> (
+                    {deleteTarget.id}) and their chat history and recommendations.
+                    Their students will be left without an Advisor. This can&apos;t
+                    be undone.
+                  </>
+                )}
+              </p>
+
+              <label className="mu-field">
+                <span>Your admin password</span>
+                <input
+                  type="password"
+                  autoFocus
+                  value={deletePassword}
+                  onChange={(e) => setDeletePassword(e.target.value)}
+                  placeholder="Enter your password to confirm"
+                />
+              </label>
+
+              {deleteError && (
+                <ul className="mu-modal-errors">
+                  <li>{deleteError}</li>
+                </ul>
+              )}
+
+              <div className="mu-modal-actions">
+                <button type="button" className="mu-btn-ghost" onClick={closeDelete}>
+                  Cancel
+                </button>
+                <button type="submit" className="mu-btn-danger" disabled={deleting}>
+                  <Trash2 size={15} strokeWidth={2} />
+                  <span>{deleting ? "Deleting…" : "Delete"}</span>
                 </button>
               </div>
             </form>

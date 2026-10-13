@@ -27,13 +27,29 @@
 }
 
 .mu-refresh:hover:not(:disabled) {
+  background: var(--role-accent-bg);
   border-color: var(--role-primary);
   color: var(--role-primary-hover);
+  transform: none;
 }
 
-.mu-refresh:disabled {
+.mu-refresh:disabled,
+.mu-refresh:disabled:hover {
+  background: var(--card);
+  border-color: var(--border);
+  color: var(--text-h);
   opacity: 0.6;
   cursor: not-allowed;
+  transform: none;
+}
+
+/* Same spinning icon as the Dashboard refresh button while loading */
+.mu-refresh:disabled svg {
+  animation: mu-spin 0.9s linear infinite;
+}
+
+@keyframes mu-spin {
+  to { transform: rotate(360deg); }
 }
 
 .mu-help {
@@ -95,6 +111,13 @@
   cursor: pointer;
 }
 
+.mu-role-tab:hover {
+  background: var(--role-accent-bg);
+  border-color: var(--role-accent-border);
+  color: var(--role-primary-hover);
+  transform: none;
+}
+
 .mu-role-tab.is-active {
   background: var(--role-accent-bg);
   border-color: var(--role-accent-border);
@@ -124,6 +147,7 @@
 
 .mu-add-advisor-btn:hover {
   background: var(--role-primary-hover);
+  transform: none;
 }
 
 /* ---- Error states ---- */
@@ -253,12 +277,16 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 30px;
-  height: 30px;
+  gap: 6px;
+  min-height: 32px;
+  padding: 6px 10px;
   border-radius: 8px;
   border: 1px solid var(--border);
   background: transparent;
   color: var(--danger, #DC2626);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
   cursor: pointer;
 }
 
@@ -317,6 +345,12 @@
   padding: 2px;
 }
 
+.mu-modal-close:hover {
+  background: var(--role-accent-bg);
+  color: var(--role-primary-hover);
+  transform: none;
+}
+
 .mu-modal-form {
   display: flex;
   flex-direction: column;
@@ -364,7 +398,8 @@
 }
 
 .mu-btn-primary,
-.mu-btn-ghost {
+.mu-btn-ghost,
+.mu-btn-danger {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -383,6 +418,29 @@
 
 .mu-btn-primary:hover {
   background: var(--role-primary-hover);
+  transform: none;
+}
+
+.mu-btn-danger {
+  background: var(--danger, #DC2626);
+  color: #FFFFFF;
+}
+
+.mu-btn-danger:hover {
+  background: #B91C1C;
+  transform: none;
+}
+
+.mu-btn-danger:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.mu-delete-warning {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--text-h);
 }
 
 .mu-btn-ghost {
@@ -392,5 +450,8 @@
 }
 
 .mu-btn-ghost:hover {
-  color: var(--text-h);
+  background: var(--role-accent-bg);
+  border-color: var(--role-accent-border);
+  color: var(--role-primary-hover);
+  transform: none;
 }

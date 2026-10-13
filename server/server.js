@@ -533,12 +533,34 @@ app.post("/students", async (req, res) => {
       if (!orphan) {
         return res.status(409).json({ error: "An account already exists for this email." });
       }
+      // This is an orphaned Auth user: it exists in Supabase Auth, but the
+      // corresponding `students` row does not exist, so registration can be
+      // completed. Reset email confirmation first so Supabase can issue a
+      // fresh signup verification email even if this Auth user was verified
+      // during an earlier incomplete registration attempt.
       const { data: updated, error: updateError } = await supabase.auth.admin.updateUserById(
         orphan.id,
-        { password }
+        { password, email_confirm: false, user_metadata: { student_id: studentId, name } }
       );
       if (updateError) return res.status(400).json({ error: updateError.message });
       authData = { user: updated.user };
+
+      // Always request a new verification email when recovering an orphaned
+      // account. If email delivery fails, do not create a student row that
+      // would make a later registration attempt look like a duplicate.
+      const { error: resendError } = await authClient.auth.resend({
+        type: "signup",
+        email,
+        options: { emailRedirectTo: `${CLIENT_URL}/?verified=1` },
+      });
+
+      if (resendError) {
+        console.error("Could not resend verification email:", resendError.message);
+        return res.status(502).json({
+          error: "The account could not be completed because the verification email could not be sent. Please try registering again.",
+          code: "VERIFICATION_EMAIL_FAILED",
+        });
+      }
     }
 
     const { data: student, error: insertError } = await supabase
@@ -5926,13 +5948,76 @@ app.post("/advisors", async (req, res) => {
   }
 });
 
+// ------------------------------------------------
+// ADMIN-ONLY DELETION (advisors + students)
+// Deleting is irreversible and this server has no session auth, so every
+// delete re-checks the calling admin's own password (sent as
+// admin_id / admin_password in the request body).
+// ------------------------------------------------
+
+async function verifyAdminCredentials(adminId, adminPassword) {
+  const id = String(adminId || "").trim().toUpperCase();
+  const password = String(adminPassword || "");
+  if (!id || !password) {
+    return { ok: false, status: 400, error: "Enter your admin password to confirm." };
+  }
+
+  const { data: admin, error } = await supabase
+    .from("admins")
+    .select("id, password_hash")
+    .ilike("id", id)
+    .maybeSingle();
+  if (error) return { ok: false, status: 500, error: error.message };
+  if (!admin) return { ok: false, status: 403, error: "Admin account not recognized." };
+
+  const valid = admin.password_hash
+    ? await bcrypt.compare(password, admin.password_hash)
+    : password === TEMP_ADVISOR_PASSWORD;
+  if (!valid) return { ok: false, status: 401, error: "Incorrect admin password." };
+
+  return { ok: true };
+}
+
+// Postgres / PostgREST codes for "column or table doesn't exist" — a table
+// that doesn't have the column (or isn't deployed) is simply skipped.
+const MISSING_COLUMN_OR_TABLE_CODES = new Set(["42703", "42P01", "PGRST204", "PGRST205"]);
+
+async function deleteRowsWhere(table, column, value) {
+  const { error } = await supabase.from(table).delete().ilike(column, value);
+  if (error && !MISSING_COLUMN_OR_TABLE_CODES.has(error.code)) {
+    throw new Error(`${table}: ${error.message}`);
+  }
+}
+
+// Every table that stores per-student rows keyed by student_id.
+const STUDENT_DATA_TABLES = [
+  "grades",
+  ELECTIVE_COURSES_TABLE,
+  REGISTRATIONS_TABLE,
+  REQUESTED_COURSES_TABLE,
+  ADVISOR_MESSAGES_TABLE,
+  BOBBY_MESSAGES_TABLE,
+  ADVISOR_RECOMMENDATIONS_TABLE,
+  PLANNER_APPROVALS_TABLE,
+];
+
+// Every table that stores rows owned by an advisor, keyed by advisor_id.
+const ADVISOR_DATA_TABLES = [
+  ADVISOR_MESSAGES_TABLE,
+  ADVISOR_RECOMMENDATIONS_TABLE,
+  "advisor_chat_messages",
+];
+
 app.delete("/advisors/:id", async (req, res) => {
   try {
+    const auth = await verifyAdminCredentials(req.body?.admin_id, req.body?.admin_password);
+    if (!auth.ok) return res.status(auth.status).json({ error: auth.error });
+
     const id = String(req.params.id || "").trim().toUpperCase();
 
     const { data: existing, error: lookupError } = await supabase
       .from("advisors")
-      .select("id, is_seed")
+      .select("id")
       .ilike("id", id)
       .maybeSingle();
 
@@ -5944,14 +6029,24 @@ app.delete("/advisors/:id", async (req, res) => {
       return res.status(404).json({ error: "Advisor not found." });
     }
 
-    if (existing.is_seed) {
-      return res.status(403).json({ error: "Built-in advisors can't be removed." });
+    // Students of this advisor are left without an advisor (they can pick a
+    // new one on Profile) instead of pointing at an ID that no longer exists.
+    const { error: unassignError } = await supabase
+      .from("students")
+      .update({ advisor_id: null })
+      .ilike("advisor_id", existing.id);
+    if (unassignError) {
+      return res.status(500).json({ error: unassignError.message });
+    }
+
+    for (const table of ADVISOR_DATA_TABLES) {
+      await deleteRowsWhere(table, "advisor_id", existing.id);
     }
 
     const { error } = await supabase
       .from("advisors")
       .delete()
-      .ilike("id", id);
+      .ilike("id", existing.id);
 
     if (error) {
       return res.status(500).json({ error: error.message });
@@ -5960,6 +6055,46 @@ app.delete("/advisors/:id", async (req, res) => {
     res.json({ ok: true });
   } catch (error) {
     console.error("DELETE /advisors/:id error:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.delete("/students/:id", async (req, res) => {
+  try {
+    const auth = await verifyAdminCredentials(req.body?.admin_id, req.body?.admin_password);
+    if (!auth.ok) return res.status(auth.status).json({ error: auth.error });
+
+    const studentId = String(req.params.id || "").trim().toUpperCase();
+
+    const { data: student, error: lookupError } = await supabase
+      .from("students")
+      .select("student_id, auth_user_id")
+      .ilike("student_id", studentId)
+      .maybeSingle();
+
+    if (lookupError) return res.status(500).json({ error: lookupError.message });
+    if (!student) return res.status(404).json({ error: "Student not found." });
+
+    for (const table of STUDENT_DATA_TABLES) {
+      await deleteRowsWhere(table, "student_id", student.student_id);
+    }
+
+    const { error: deleteError } = await supabase
+      .from("students")
+      .delete()
+      .eq("student_id", student.student_id);
+    if (deleteError) return res.status(500).json({ error: deleteError.message });
+
+    // Remove the login account too so the same email/ID can register again.
+    if (student.auth_user_id) {
+      await supabase.auth.admin.deleteUser(student.auth_user_id).catch((err) => {
+        console.error("Failed to delete Supabase Auth user:", err);
+      });
+    }
+
+    res.json({ ok: true });
+  } catch (error) {
+    console.error("DELETE /students/:id error:", error);
     res.status(500).json({ error: error.message });
   }
 });

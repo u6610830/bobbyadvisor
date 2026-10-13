@@ -7,7 +7,7 @@ import {
   Clock,
   TrendingUp,
   GraduationCap,
-  RefreshCw,
+  RefreshCcw,
   Search,
   ChevronRight,
 } from "lucide-react";
@@ -133,8 +133,8 @@ function AdminDashboard({ onNavigate }) {
       <div className="dash-head">
         <span className="admin-summary-title-pill">Dashboard</span>
         <button type="button" className="dash-refresh" onClick={load} disabled={loading}>
-          <RefreshCw size={15} className={loading ? "spin" : ""} />
-          Refresh
+          <RefreshCcw size={15} strokeWidth={2} />
+          <span>{loading ? "Loading..." : "Refresh"}</span>
         </button>
       </div>
 

@@ -41,7 +41,7 @@ function AdminPortal({ userId, onSignOut }) {
   };
 
   const renderContent = () => {
-    if (activePage === "manage-users") return <AdminManageUsers />;
+    if (activePage === "manage-users") return <AdminManageUsers adminId={userId} />;
     if (activePage === "settings") return <AccountSettings userId={userId} role="admin" displayName={admin?.name} />;
     if (activePage === "timetable") return <AdminCourseTimetable />;
     if (activePage === "graduation-check") return <AdminGraduationCheck key={graduationStudentId || "search"} initialStudentId={graduationStudentId} />;

@@ -11,31 +11,36 @@
   gap: 12px;
 }
 
+/* Refresh button â€” identical to .mu-refresh on Manage Users */
 .dash-refresh {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 6px;
-  border: 1px solid var(--border);
+  gap: 8px;
   background: var(--card);
+  border: 1px solid var(--border);
   color: var(--text-h);
-  border-radius: 999px;
-  padding: 8px 16px;
+  border-radius: 10px;
+  padding: 9px 16px;
   font-size: 14px;
+  font-weight: 600;
   cursor: pointer;
 }
 
 .dash-refresh:hover:not(:disabled) {
   background: var(--role-accent-bg);
   border-color: var(--role-primary);
-  color: var(--role-primary);
+  color: var(--role-primary-hover);
+  transform: none;
 }
 
-.dash-refresh .spin {
-  animation: dash-spin 0.9s linear infinite;
-}
-
-@keyframes dash-spin {
-  to { transform: rotate(360deg); }
+.dash-refresh:disabled,
+.dash-refresh:disabled:hover {
+  background: var(--card);
+  border-color: var(--border);
+  color: var(--text-h);
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
 }
 
 .dash-error {
@@ -75,7 +80,7 @@
 }
 
 .dash-stat:hover {
-  /* The global button:hover is yellow — keep the card purple instead. */
+  /* The global button:hover is yellow â€” keep the card purple instead. */
   background: var(--role-accent-bg);
   border-color: var(--role-primary);
   transform: translateY(-1px);
