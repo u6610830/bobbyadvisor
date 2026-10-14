@@ -93,7 +93,9 @@ export function mergeElectiveGroupRows(blockCourses, groupKey, electiveCourses) 
       code: c.code,
       name: c.name,
       credits: c.credits,
+      minGradeC: Boolean(c.minGradeC),
       status: override ? override.status : c.status,
+      statusOverride: Boolean(override),
       removable: false,
     };
   });
@@ -108,6 +110,7 @@ export function mergeElectiveGroupRows(blockCourses, groupKey, electiveCourses) 
       credits: c.credits,
       status: c.status,
       id: c.id,
+      statusOverride: true,
       removable: true,
     }));
 

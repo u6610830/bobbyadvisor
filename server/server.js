@@ -38,14 +38,7 @@ const client = new GoogleGenAI({
   apiKey: process.env.GEMINI_API_KEY
 });
 
-// Model used for BOTH /extract (grades) and /extract-timetable below.
-// IMPORTANT: "gemini-3.1-flash-lite" is the only model string confirmed
-// to actually work on this account/API version. Do NOT swap this for a
-// different model name (e.g. "gemini-3.1-flash", "gemini-3.1-pro")
-// without first testing it against /test-gemini below — an unavailable
-// model name fails with a 404 "not found for API version v1beta" error,
-// which breaks the upload it's used in.
-const GEMINI_MODEL = "gemini-3.1-flash-lite";
+const GEMINI_MODEL = "gemini-4-argon";
 
 
 // Normalize the different error shapes returned by @google/genai into a
@@ -4903,6 +4896,7 @@ app.post("/advisor-course-recommendations", async (req, res) => {
       studentId,
       advisorId,
       courseCode,
+      section: suppliedSection,
       courseName,
       message,
     } = req.body;
@@ -4915,7 +4909,16 @@ app.post("/advisor-course-recommendations", async (req, res) => {
       .trim()
       .toUpperCase();
 
-    const courseCodeClean = normalizeCourseCode(courseCode);
+    // Keep the section when sending a recommendation to the student.
+    // The UI may send either "CSX2009 Sec.542" as courseCode or send
+    // courseCode="CSX2009" and section="542" separately.
+    const rawCourseLabel = String(courseCode || "").trim();
+    const embeddedSection = rawCourseLabel.match(/\\bSEC\\.?\\s*([A-Z0-9-]+)/i)?.[1] || "";
+    const courseCodeClean = extractCourseCodes(rawCourseLabel)[0] || normalizeCourseCode(rawCourseLabel);
+    const sectionClean = String(suppliedSection || embeddedSection).trim();
+    const courseLabel = courseCodeClean
+      ? `${courseCodeClean}${sectionClean ? ` Sec.${sectionClean}` : ""}`
+      : "";
 
     if (!studentIdClean) {
       return res.status(400).json({
@@ -4970,7 +4973,9 @@ app.post("/advisor-course-recommendations", async (req, res) => {
       .insert({
         student_id: studentIdClean,
         advisor_id: advisorIdClean,
-        course_code: courseCodeClean,
+        // Store the student-facing label, including the actual section,
+        // e.g. "CSX2009 Sec.542", instead of silently dropping the section.
+        course_code: courseLabel,
         course_name: String(courseName || "").trim(),
         message: String(message || "").trim(),
         status: "pending",

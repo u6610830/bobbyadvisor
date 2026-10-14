@@ -7,6 +7,7 @@ import { evaluateCurriculumProgress } from "../utils/curriculumProgress.js";
 import { normalizeCourseCode } from "../utils/courseCode.js";
 import {
   getFinalCourseGrades,
+  getDashboardCourseStatus,
   normalizeGrade,
   courseMatchesRule,
   COMPLETED_GRADES,
@@ -26,10 +27,20 @@ import UnsavedNotice from "../components/UnsavedNotice.jsx";
 const API_BASE = import.meta.env.VITE_API_BASE || (import.meta.env.PROD ? "https://api.bobbyadvisor.org" : "http://localhost:3001");
 
 const STATUS_META = {
-  completed: { label: "Completed", icon: CheckCircle2, className: "gc-status-completed" },
-  "in-progress": { label: "In Progress", icon: Clock, className: "gc-status-inprogress" },
+  completed: { label: "Complete", icon: CheckCircle2, className: "gc-status-completed" },
+  "in-progress": { label: "In Process", icon: Clock, className: "gc-status-inprogress" },
   "not-taken": { label: "Not Taken", icon: Circle, className: "gc-status-nottaken" },
-  "re-grade": { label: "Retake", icon: RotateCcw, className: "gc-status-regrade" },
+  "re-grade": { label: "Re-grade", icon: RotateCcw, className: "gc-status-regrade" },
+};
+
+const DASHBOARD_STATUS_META = {
+  Complete: STATUS_META.completed,
+  "Register This Term": STATUS_META["in-progress"],
+  "Not Taken": STATUS_META["not-taken"],
+  Retake: STATUS_META["re-grade"],
+  Retry: STATUS_META["re-grade"],
+  Withdraw: STATUS_META["re-grade"],
+  Incomplete: STATUS_META["in-progress"],
 };
 
 const STATUS_OPTIONS = ["completed", "in-progress", "not-taken", "re-grade"];
@@ -40,8 +51,8 @@ function rowKey(groupName, code) {
   return `${groupName}::${code}`;
 }
 
-// readOnly: true hides every editing control (group Edit/Save, Add
-// Course, per-row Delete) so this same component can be embedded
+// readOnly: true hides every editing control (Add Course and per-row Delete)
+// so this same component can be embedded
 // read-only elsewhere — e.g. the Advisor's Student List detail view,
 // showing one specific student's real progress from the database with no
 // way to change it. Everything else (data fetching, per-student scoping)
@@ -50,6 +61,7 @@ function StudentGraduationCheck({ studentId, curriculumYear = null, readOnly = f
   const [completedCodes, setCompletedCodes] = useState(new Set());
   const [inProgressCodes, setInProgressCodes] = useState(new Set());
   const [gradesByCode, setGradesByCode] = useState(new Map());
+  const [courseStatuses, setCourseStatuses] = useState(new Map());
   // Credits earned from the transcript (grades table) only — self-added
   // elective credits are folded in below via `creditsEarned`, kept separate
   // so a problem loading self-added courses can never wipe out this number.
@@ -65,14 +77,12 @@ function StudentGraduationCheck({ studentId, curriculumYear = null, readOnly = f
   // pre-approved list.
   const [electiveCourses, setElectiveCourses] = useState([]);
   const [addForms, setAddForms] = useState({}); // { [groupName]: { open, code, name, credits, saving, error } }
-
-  // One Edit/Save toggle per group (like Grade List's per-term Edit/Save):
-  // which canonical group names are currently in edit mode, the draft
-  // status per row while editing, and per-group saving/error state.
   const [editingGroups, setEditingGroups] = useState(new Set());
-  const [statusDrafts, setStatusDrafts] = useState({}); // { [rowKey]: draftStatus }
+  const [statusDrafts, setStatusDrafts] = useState({});
   const [savingGroups, setSavingGroups] = useState(new Set());
-  const [saveErrors, setSaveErrors] = useState({}); // { [groupName]: error }
+  const [saveErrors, setSaveErrors] = useState({});
+  const [savedNoMinCNotes, setSavedNoMinCNotes] = useState(new Set());
+
   const [profileCurriculum, setProfileCurriculum] = useState(null);
 
   // Curriculum requirements live in the database now — refresh the local
@@ -124,9 +134,9 @@ function StudentGraduationCheck({ studentId, curriculumYear = null, readOnly = f
       .catch((err) => console.error("Failed to load elective group:", err));
   }, [studentId]);
 
-  // Transcript + planned-courses status — this is the original behavior
-  // (Completed / In Progress / Not Taken per course) and must keep working
-  // on its own, independent of the self-added elective courses below.
+  // Transcript grades and planned courses feed graduation progress. The
+  // displayed course status below is derived from transcript grades using
+  // the same helper as Dashboard > Course status.
   useEffect(() => {
     if (!studentId || !profileCurriculumReady) return;
 
@@ -149,15 +159,10 @@ function StudentGraduationCheck({ studentId, curriculumYear = null, readOnly = f
       .filter((course) => course.minGradeC)
       .map((course) => course.code);
 
-    const requiresMinGradeC = (courseCode) =>
-      minGradeCRules.some((rule) =>
-        courseMatchesRule(courseCode, rule)
-      );
-
     const passesForCurriculum = (courseCode, grade) => {
       const normalized = normalizeGrade(grade);
 
-      if (requiresMinGradeC(courseCode)) {
+      if (minGradeCRules.some((rule) => courseMatchesRule(courseCode, rule))) {
         return COMPLETED_GRADES.has(normalized);
       }
 
@@ -176,7 +181,23 @@ function StudentGraduationCheck({ studentId, curriculumYear = null, readOnly = f
 
         const completed = new Set();
         const gradeMap = new Map();
+        const allGradesByCode = new Map();
         let earned = 0;
+
+        (gradesRes.data || []).forEach((gradeRow) => {
+          const code = normalizeCourseCode(gradeRow.course_code ?? gradeRow.code);
+          if (!code) return;
+          const entries = allGradesByCode.get(code) || [];
+          entries.push(gradeRow.grade);
+          allGradesByCode.set(code, entries);
+        });
+
+        const statusMap = new Map(
+          [...allGradesByCode.entries()].map(([code, grades]) => [
+            code,
+            getDashboardCourseStatus(code, grades, minGradeCRules),
+          ])
+        );
 
         const finalGrades = getFinalCourseGrades(gradesRes.data || [], currentCurriculum);
 
@@ -209,6 +230,7 @@ function StudentGraduationCheck({ studentId, curriculumYear = null, readOnly = f
         setCompletedCodes(completed);
         setInProgressCodes(inProgress);
         setGradesByCode(gradeMap);
+        setCourseStatuses(statusMap);
         setGradeCreditsEarned(earned);
       })
       .catch((err) => {
@@ -250,9 +272,12 @@ function StudentGraduationCheck({ studentId, curriculumYear = null, readOnly = f
   const electiveCreditsEarned = useMemo(
     () =>
       electiveCourses
-        .filter((c) => c.status === "completed" && !completedCodes.has(normalizeCourseCode(c.course_code)))
+        .filter((c) =>
+          courseStatuses.get(normalizeCourseCode(c.course_code)) === "Complete" &&
+          !completedCodes.has(normalizeCourseCode(c.course_code))
+        )
         .reduce((sum, c) => sum + (Number(c.credits) || 0), 0),
-    [electiveCourses, completedCodes]
+    [electiveCourses, completedCodes, courseStatuses]
   );
   const creditsEarned = gradeCreditsEarned + electiveCreditsEarned;
 
@@ -283,28 +308,45 @@ function StudentGraduationCheck({ studentId, curriculumYear = null, readOnly = f
   const totalRequired = curriculum?.totalCreditsRequired ?? null;
   const creditsLeft = totalRequired !== null ? Math.max(totalRequired - creditsEarned, 0) : null;
 
-  // A saved/manual elective status must not overwrite a real transcript or
-  // planner result. This keeps Min C + C-/D/F as Retake.
-  const mergeRowsPreservingAcademicStatus = (block, groupKey) =>
+  // Status is calculated from transcript grades with the same rule used by
+  // Dashboard > Course status until the student explicitly edits and saves it.
+  const mergeGraduationRows = (block, groupKey) =>
     mergeElectiveGroupRows(block.courses, groupKey, electiveCourses).map((row) => {
-      const academicRow = block.courses.find((course) =>
-        courseMatchesRule(row.code, course.code)
-      );
-
-      if (
-        academicRow &&
-        ["completed", "in-progress", "re-grade"].includes(academicRow.status)
-      ) {
-        return { ...row, status: academicRow.status };
-      }
-
-      return row;
+      const matchedStatus = [...courseStatuses.entries()].find(([courseCode]) =>
+        courseMatchesRule(courseCode, row.code)
+      )?.[1] || "Not Taken";
+      const calculatedStatus = matchedStatus === "Complete"
+        ? "completed"
+        : ["Retake", "Retry", "Withdraw"].includes(matchedStatus)
+          ? "re-grade"
+          : "not-taken";
+      const requestedStatus = row.statusOverride ? row.status : calculatedStatus;
+      const minCBlocksCompletion = row.minGradeC &&
+        requestedStatus === "completed" &&
+        matchedStatus !== "Complete";
+      const rowStatus = minCBlocksCompletion ? calculatedStatus : requestedStatus;
+      const courseStatus = !row.statusOverride || minCBlocksCompletion
+        ? matchedStatus
+        : rowStatus === "completed"
+          ? "Complete"
+          : rowStatus === "in-progress"
+            ? "Register This Term"
+            : rowStatus === "not-taken"
+              ? "Not Taken"
+              : row.minGradeC
+                ? "Retake"
+                : "Retry";
+      return {
+        ...row,
+        courseStatus,
+        transcriptStatus: matchedStatus,
+        status: rowStatus,
+      };
     });
 
   // --- Add-new-course form helpers ---------------------------------------
-  // Just adds the course — no status to fill in here. It shows up as "Not
-  // Taken" until the student sets its real status via the group's Edit
-  // button below, same as every other row in the group.
+  // Just adds the course. Its displayed status is derived from transcript
+  // grades after this row is added.
 
   const getAddForm = (groupName) => addForms[groupName] || EMPTY_ADD_FORM;
 
@@ -359,13 +401,13 @@ function StudentGraduationCheck({ studentId, curriculumYear = null, readOnly = f
       .catch((err) => console.error("Failed to delete elective course:", err));
   };
 
-  // --- Group-level Edit/Save toggle ---------------------------------------
-  // One button per group (top-right of its block): "Edit" turns every row
-  // in that group into a status dropdown; "Save" (shown in Edit's place
-  // while editing) persists whatever was changed, then reverts to "Edit".
-
   const startEditingGroup = (groupName) => {
     setSaveErrors((prev) => ({ ...prev, [groupName]: "" }));
+    setSavedNoMinCNotes((prev) => {
+      const next = new Set(prev);
+      next.delete(groupName);
+      return next;
+    });
     setEditingGroups((prev) => new Set(prev).add(groupName));
   };
 
@@ -378,7 +420,10 @@ function StudentGraduationCheck({ studentId, curriculumYear = null, readOnly = f
       const draft = statusDrafts[rowKey(groupName, row.code)];
       return draft !== undefined && draft !== row.status;
     });
-
+    const showNoMinCNote = () => {
+      if (!rows.some((row) => !row.minGradeC)) return;
+      setSavedNoMinCNotes((prev) => new Set(prev).add(groupName));
+    };
     const stopEditing = () => setEditingGroups((prev) => {
       const next = new Set(prev);
       next.delete(groupName);
@@ -386,6 +431,7 @@ function StudentGraduationCheck({ studentId, curriculumYear = null, readOnly = f
     });
 
     if (changed.length === 0) {
+      showNoMinCNote();
       stopEditing();
       return;
     }
@@ -393,30 +439,28 @@ function StudentGraduationCheck({ studentId, curriculumYear = null, readOnly = f
     setSavingGroups((prev) => new Set(prev).add(groupName));
     setSaveErrors((prev) => ({ ...prev, [groupName]: "" }));
 
-    Promise.all(
-      changed.map((row) =>
-        axios.post(`${API_BASE}/student-elective-courses`, {
-          studentId,
-          groupName,
-          courseCode: row.code,
-          courseName: row.name,
-          credits: row.credits,
-          status: statusDrafts[rowKey(groupName, row.code)],
-        })
-      )
-    )
+    Promise.all(changed.map((row) =>
+      axios.post(`${API_BASE}/student-elective-courses`, {
+        studentId,
+        groupName,
+        courseCode: row.code,
+        courseName: row.name,
+        credits: row.credits,
+        status: statusDrafts[rowKey(groupName, row.code)],
+      })
+    ))
       .then((responses) => {
         const saved = responses.map((res) => res.data.course);
         setElectiveCourses((prev) => {
-          const savedKeys = new Set(saved.map((c) => `${c.group_name}|${c.course_code}`));
-          const kept = prev.filter((c) => !savedKeys.has(`${c.group_name}|${c.course_code}`));
-          return [...kept, ...saved];
+          const savedKeys = new Set(saved.map((course) => `${course.group_name}|${course.course_code}`));
+          return [...prev.filter((course) => !savedKeys.has(`${course.group_name}|${course.course_code}`)), ...saved];
         });
         setStatusDrafts((prev) => {
           const next = { ...prev };
           changed.forEach((row) => delete next[rowKey(groupName, row.code)]);
           return next;
         });
+        if (changed.some((row) => !row.minGradeC)) showNoMinCNote();
         stopEditing();
       })
       .catch((err) => {
@@ -475,7 +519,7 @@ function StudentGraduationCheck({ studentId, curriculumYear = null, readOnly = f
     pushRow([`Requirement Groups Met : ${visibleBlocks.filter((b) => b.satisfied).length}/${visibleBlocks.length}`]);
 
     visibleBlocks.forEach((block) => {
-      const rows = mergeRowsPreservingAcademicStatus(block, statusOverrideGroupKey(block));
+      const rows = mergeGraduationRows(block, statusOverrideGroupKey(block));
       const exportRows = visibleRowsForBlock(block, rows);
       const headingText =
         block.group && block.group.trim() !== block.label?.trim()
@@ -496,7 +540,7 @@ function StudentGraduationCheck({ studentId, curriculumYear = null, readOnly = f
           row.name || "—",
           Number(row.credits) || row.credits || "",
           findGradeForCourse(row.code),
-          (STATUS_META[row.status] || STATUS_META["not-taken"]).label,
+          (DASHBOARD_STATUS_META[row.courseStatus] || DASHBOARD_STATUS_META["Not Taken"]).label,
         ]);
       });
     });
@@ -525,7 +569,7 @@ function StudentGraduationCheck({ studentId, curriculumYear = null, readOnly = f
     visibleBlocks.length > 0 &&
     visibleBlocks.every((block) => {
       const groupKey = statusOverrideGroupKey(block);
-      const rows = mergeRowsPreservingAcademicStatus(block, groupKey);
+      const rows = mergeGraduationRows(block, groupKey);
       return electiveGroupCreditsEarned(rows) >= (block.creditsRequired || 0);
     });
 
@@ -579,14 +623,11 @@ function StudentGraduationCheck({ studentId, curriculumYear = null, readOnly = f
 
           <div className="gc-blocks">
             {visibleBlocks.map((block) => {
-              // Every block's course status can now be overridden by the
-              // student (Edit/Save toggle, top-right) — not just "choose"
-              // blocks. Adding a brand-new course not on Admin's list (the
-              // "Add Course" form) is still limited to "choose" blocks —
-              // see canAddCourseToGroup.
+              // Statuses are read from transcript grades with Dashboard's
+              // Course status rules. Students can still add eligible courses.
               const groupKey = statusOverrideGroupKey(block);
               const canAdd = canAddCourseToGroup(block);
-              const rows = mergeRowsPreservingAcademicStatus(block, groupKey);
+              const rows = mergeGraduationRows(block, groupKey);
               const form = getAddForm(groupKey);
               const isEditingGroup = editingGroups.has(groupKey);
               const isSavingGroup = savingGroups.has(groupKey);
@@ -613,18 +654,15 @@ function StudentGraduationCheck({ studentId, curriculumYear = null, readOnly = f
                 !/elective/i.test(`${block.group || ""} ${block.label || ""}`) ||
                 isFixedChooseOneBlock;
 
-              // Normal view for the elective-taxonomy blocks: show only
-              // finished courses. Retake stays visible because the
-              // student already finished an attempt but still needs to
-              // take the course again. Edit mode keeps every row visible
-              // so the old Edit/Save function still works. The three
-              // full-list blocks above always show every row regardless.
+              // Elective blocks show completed/retake courses, plus all
+              // Min C courses so their transcript status matches Dashboard.
               const displayRows = isEditingGroup || isFullListBlock
                 ? rows
                 : rows.filter(
                     (r) =>
                       r.status === "completed" ||
-                      r.status === "re-grade"
+                      r.status === "re-grade" ||
+                      r.minGradeC
                   );
 
               const rowsCompletedCount = rows.filter((r) => r.status === "completed").length;
@@ -652,25 +690,24 @@ function StudentGraduationCheck({ studentId, curriculumYear = null, readOnly = f
                           ? `${rowsCompletedCount}/${block.courses.length} completed`
                           : `${rowsCompletedCount}/${block.chooseCount} chosen`}
                       </span>
-                      {!readOnly &&
-                        (!isEditingGroup ? (
-                          <button
-                            type="button"
-                            className="gc-elective-group-edit"
-                            onClick={() => startEditingGroup(groupKey)}
-                          >
-                            <Pencil size={14} strokeWidth={2} /> Edit
-                          </button>
-                        ) : (
-                          <button
-                            type="button"
-                            className="gc-elective-group-save"
-                            onClick={() => saveEditingGroup(groupKey, rows)}
-                            disabled={isSavingGroup}
-                          >
-                            <Save size={14} strokeWidth={2} /> {isSavingGroup ? "Saving..." : "Save"}
-                          </button>
-                        ))}
+                      {!readOnly && (!isEditingGroup ? (
+                        <button
+                          type="button"
+                          className="gc-elective-group-edit"
+                          onClick={() => startEditingGroup(groupKey)}
+                        >
+                          <Pencil size={14} strokeWidth={2} /> Edit
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          className="gc-elective-group-save"
+                          onClick={() => saveEditingGroup(groupKey, rows)}
+                          disabled={isSavingGroup}
+                        >
+                          <Save size={14} strokeWidth={2} /> {isSavingGroup ? "Saving..." : "Save"}
+                        </button>
+                      ))}
                       {isEditingGroup && !isSavingGroup && <UnsavedNotice show text="Not saved yet — press Save." />}
                     </div>
                   </div>
@@ -691,7 +728,7 @@ function StudentGraduationCheck({ studentId, curriculumYear = null, readOnly = f
                         <tbody>
                           {displayRows.map((row) => {
                             const draftStatus = statusDrafts[rowKey(groupKey, row.code)] ?? row.status;
-                            const meta = STATUS_META[draftStatus] || STATUS_META["not-taken"];
+                            const meta = DASHBOARD_STATUS_META[row.courseStatus] || STATUS_META["not-taken"];
                             const Icon = meta.icon;
                             return (
                               <tr key={row.code}>
@@ -705,11 +742,16 @@ function StudentGraduationCheck({ studentId, curriculumYear = null, readOnly = f
                                       className="gc-status-select"
                                       value={draftStatus}
                                       disabled={isSavingGroup}
+                                      title={row.minGradeC ? "A minimum grade of C is required to mark this course completed." : undefined}
                                       onChange={(e) => setDraftStatus(groupKey, row.code, e.target.value)}
                                     >
-                                      {STATUS_OPTIONS.map((s) => (
-                                        <option key={s} value={s}>
-                                          {STATUS_META[s].label}
+                                      {STATUS_OPTIONS.map((status) => (
+                                        <option
+                                          key={status}
+                                          value={status}
+                                          disabled={row.minGradeC && status === "completed" && row.transcriptStatus !== "Complete"}
+                                        >
+                                          {STATUS_META[status].label}
                                         </option>
                                       ))}
                                     </select>
@@ -791,6 +833,9 @@ function StudentGraduationCheck({ studentId, curriculumYear = null, readOnly = f
                         </div>
                       ))}
                   </div>
+                  {savedNoMinCNotes.has(groupKey) && (
+                    <p className="gc-no-min-c-note">This course does not require a minimum grade of C.</p>
+                  )}
                 </div>
               );
             })}

@@ -425,7 +425,15 @@ function GradeList({ onNavigate, studentId }) {
               <div className="grade-add-header">
                 <h3>Add Grade</h3>
 
-            
+                <button
+                  type="button"
+                  className="grade-add-close"
+                  onClick={closeAddForm}
+                  disabled={adding}
+                  aria-label="Close"
+                >
+                  <X size={18} />
+                </button>
               </div>
 
               <div

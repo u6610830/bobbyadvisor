@@ -251,7 +251,9 @@
 .gc-status-completed,
 .gc-status-inprogress,
 .gc-status-nottaken,
-.gc-status-regrade {
+.gc-status-regrade,
+.gc-status-withdraw,
+.gc-status-incomplete {
   font-weight: 700;
 }
 
@@ -268,7 +270,15 @@
 }
 
 .gc-status-regrade {
-  color: #dc2626;
+  color: #d97706;
+}
+
+.gc-status-withdraw {
+  color: var(--danger);
+}
+
+.gc-status-incomplete {
+  color: var(--text-muted);
 }
 
 .gc-elective-panel {
@@ -308,6 +318,15 @@
   background: var(--card);
   color: var(--text-h);
   text-decoration: none;
+}
+
+.gc-no-min-c-note {
+  display: block;
+  max-width: 180px;
+  margin-top: 4px;
+  color: #dc2626;
+  font-size: 11px;
+  line-height: 1.35;
 }
 
 .gc-elective-add-btn {

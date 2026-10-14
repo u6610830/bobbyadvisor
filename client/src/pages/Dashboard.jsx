@@ -5,6 +5,7 @@ import { getCurrentSemester } from "../utils/semester.js";
 import {
   calculateGPA,
   getFinalCourseGrades,
+  getDashboardCourseStatus,
   isCompletedGrade,
   normalizeGrade,
   courseMatchesRule,
@@ -32,6 +33,7 @@ const STATUS_CLASS = {
 
 function Dashboard({ onNavigate, studentId, curriculumYear = null }) {
   const [grades, setGrades] = useState([]);
+  const [courseStatusOverrides, setCourseStatusOverrides] = useState(new Map());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -68,6 +70,34 @@ function Dashboard({ onNavigate, studentId, curriculumYear = null }) {
     };
 
     fetchGrades();
+  }, [studentId]);
+
+  useEffect(() => {
+    if (!studentId) {
+      setCourseStatusOverrides(new Map());
+      return undefined;
+    }
+
+    let cancelled = false;
+    axios
+      .get(`${API_BASE}/student-elective-courses?student_id=${encodeURIComponent(studentId)}`)
+      .then((response) => {
+        if (cancelled) return;
+        const overrides = new Map();
+        (response.data || []).forEach((course) => {
+          const code = normalizeCourseCode(course.course_code);
+          if (code) overrides.set(code, course.status);
+        });
+        setCourseStatusOverrides(overrides);
+      })
+      .catch((fetchError) => {
+        console.warn("Could not load course status overrides:", fetchError.message);
+        if (!cancelled) setCourseStatusOverrides(new Map());
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, [studentId]);
 
   /*
@@ -349,41 +379,17 @@ const progressColor = getProgressColor(progressPct);
   });
 
   const getCourseStatus = (courseCode, courseGrades) => {
-    // A course is complete according to that course's own minimum-grade rule.
-    if (
-      courseGrades.some((grade) =>
-        isPassingForCurriculum(courseCode, grade)
-      )
-    ) {
-      return "Complete";
+    const calculated = getDashboardCourseStatus(courseCode, courseGrades, minGradeCRules);
+    const override = courseStatusOverrides.get(normalizeCourseCode(courseCode));
+    if (!override) return calculated;
+    if (override === "completed" && requiresMinGradeC(courseCode) && calculated !== "Complete") {
+      return calculated;
     }
-
-    if (courseGrades.includes("W")) {
-      return "Withdraw";
-    }
-
-    // C-, D, or F on a course Admin marked "Min C" => Retake.
-    if (
-      requiresMinGradeC(courseCode) &&
-      courseGrades.some((grade) =>
-        ["C-", "D", "F"].includes(normalizeGrade(grade))
-      )
-    ) {
-      return "Retake";
-    }
-
-    if (
-      courseGrades.includes("R") ||
-      courseGrades.includes("F")
-    ) {
-      return "Retry";
-    }
-
-    if (courseGrades.includes("I")) {
-      return "Incomplete";
-    }
-
-    return "Incomplete";
+    if (override === "completed") return "Complete";
+    if (override === "in-progress") return "Register This Term";
+    if (override === "not-taken") return "Not Taken";
+    if (override === "re-grade") return requiresMinGradeC(courseCode) ? "Retake" : "Retry";
+    return calculated;
   };
 
   // Course status lists every Major/Core course plus every Min-C course

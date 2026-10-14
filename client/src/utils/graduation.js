@@ -60,6 +60,32 @@ export function passesForCourse(courseCode, grade, minCRules) {
   return false;
 }
 
+/**
+ * Course status shown on Dashboard > Course status. Keep this shared so
+ * Graduation Check reports the same result for the same transcript and
+ * curriculum rules.
+ */
+export function getDashboardCourseStatus(courseCode, courseGrades, minCRules) {
+  const grades = (Array.isArray(courseGrades) ? courseGrades : []).map(normalizeGrade);
+  if (grades.length === 0) return "Not Taken";
+
+  if (grades.some((grade) => passesForCourse(courseCode, grade, minCRules))) {
+    return "Complete";
+  }
+
+  if (grades.includes("W")) return "Withdraw";
+
+  if (
+    requiresMinGradeC(courseCode, minCRules) &&
+    grades.some((grade) => REGRADE_GRADES.has(grade))
+  ) {
+    return "Retake";
+  }
+
+  if (grades.includes("R") || grades.includes("F")) return "Retry";
+  return "Incomplete";
+}
+
 function semesterOrder(semester) {
   const [term, year] = String(semester || "0/0").split("/").map(Number);
   return (Number.isFinite(year) ? year : 0) * 10 + (Number.isFinite(term) ? term : 0);

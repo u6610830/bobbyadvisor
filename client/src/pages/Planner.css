@@ -187,6 +187,10 @@
   color: var(--text-muted);
 }
 
+.course-status-re-grade .planner-course-left-tag {
+  color: #dc2626;
+}
+
 .planner-schedule-btn {
   display: flex;
   align-items: center;
