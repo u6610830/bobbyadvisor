@@ -26,6 +26,11 @@ export const DEFAULT_COURSE_GROUPS = [
 // something Admin has to fix by hand in every browser.
 const LEGACY_GROUP_NAMES = ["Major Elective", "General Education", "Free Elective"];
 
+/** True for the old short-form names that getCourseGroups() strips out. */
+export function isLegacyGroupName(name) {
+  return LEGACY_GROUP_NAMES.includes(name);
+}
+
 /** The current list of course group names, admin defaults unless overridden. */
 export function getCourseGroups() {
   const custom = loadState(STORAGE_KEY, null);

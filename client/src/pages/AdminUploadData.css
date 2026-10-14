@@ -463,3 +463,10 @@
   box-sizing: content-box;
   padding: 0;
 }
+.upload-data-path-summary {
+  margin: 0 0 12px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: rgba(99, 102, 241, 0.08);
+  font-size: 0.9rem;
+}

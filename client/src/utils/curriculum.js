@@ -16,7 +16,7 @@ import axios from "axios";
 import { DEFAULT_CURRICULA } from "../data/mockCurriculum.js";
 import { loadState, saveState } from "./storage.js";
 import { getBatchCode } from "./prereqGroup.js";
-import { DEFAULT_COURSE_GROUPS } from "./courseGroups.js";
+import { DEFAULT_COURSE_GROUPS, addCourseGroup, isLegacyGroupName } from "./courseGroups.js";
 
 const STORAGE_KEY = "curricula";
 const API_BASE = import.meta.env.VITE_API_BASE || (import.meta.env.PROD ? "https://api.bobbyadvisor.org" : "http://localhost:3001");
@@ -114,6 +114,33 @@ export function getCurriculumGroups(curriculum) {
       courses: requiredCourses,
     },
   ];
+}
+
+/** Every requirement-group heading (label) and course-group name used by
+ * the curricula Admin saved on Upload Table Data, trimmed and de-duplicated. */
+export function getCurriculumGroupNames() {
+  const custom = loadState(STORAGE_KEY, {});
+  const names = new Set();
+  Object.values(custom || {}).forEach((curriculum) => {
+    getCurriculumGroups(curriculum).forEach((block) => {
+      [block.label, block.group].forEach((raw) => {
+        const name = String(raw || "").trim();
+        if (name && !isLegacyGroupName(name)) names.add(name);
+      });
+    });
+  });
+  return Array.from(names);
+}
+
+/** Adds every requirement group saved in any curriculum to the shared
+ * Course Group list (the dropdown on Admin > All Courses). Safe to call
+ * repeatedly — names already in the list are skipped. Returns the list. */
+export function syncCourseGroupsFromCurricula() {
+  let groups = null;
+  getCurriculumGroupNames().forEach((name) => {
+    groups = addCourseGroup(name);
+  });
+  return groups;
 }
 
 // Student IDs start with "U" followed by a batch code whose first two

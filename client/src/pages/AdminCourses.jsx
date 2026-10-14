@@ -2,6 +2,7 @@ import { useEffect, useState, useRef } from "react";
 import axios from "axios";
 import { Plus, RefreshCcw, Save, X, Settings, Trash2 } from "lucide-react";
 import { getCourseGroups, addCourseGroup, renameCourseGroup, deleteCourseGroup } from "../utils/courseGroups.js";
+import { syncCurriculaFromServer, subscribeCurricula, syncCourseGroupsFromCurricula } from "../utils/curriculum.js";
 import "./AdminCourses.css";
 
 const API_BASE =
@@ -57,6 +58,17 @@ function AdminCourses() {
 
   useEffect(() => {
     loadCourses();
+  }, []);
+
+  // Every requirement group Admin adds on Upload Table Data (curriculum)
+  // also appears in the "Course" group dropdown below. Pull the latest
+  // curricula from the database so this works from any browser, then
+  // merge their group names into the shared list.
+  useEffect(() => {
+    const mergeGroups = () => setCourseGroups(syncCourseGroupsFromCurricula() || getCourseGroups());
+    mergeGroups();
+    syncCurriculaFromServer().then(mergeGroups);
+    return subscribeCurricula(mergeGroups);
   }, []);
   
   useEffect(() => {

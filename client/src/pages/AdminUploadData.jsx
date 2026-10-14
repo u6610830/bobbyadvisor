@@ -269,6 +269,12 @@ function AdminUploadData() {
     setDraft((prev) => ({ ...prev, groups: [...prev.groups, blankBlock()] }));
   };
 
+  // A new group that students choose between (Group 1A vs 1B ...) —
+  // same as a normal group with the "Student picks only one" box ticked.
+  const addPathBlock = () => {
+    setDraft((prev) => ({ ...prev, groups: [...prev.groups, { ...blankBlock(), chooseOneGroup: true }] }));
+  };
+
   const removeBlock = (blockId) => {
     setDraft((prev) => ({ ...prev, groups: prev.groups.filter((b) => b.id !== blockId) }));
   };
@@ -429,10 +435,21 @@ function AdminUploadData() {
       creditsRequired: Number(block.creditsRequired) || 0,
     }));
 
+    // Selectable paths (Group 1A / 1B ...) are told apart by their
+    // heading, so each one needs its own non-empty, unique heading.
+    const pathIds = cleanedGroups.filter((b) => b.chooseOneGroup).map((b) => b.label || b.group);
+    if (pathIds.some((id) => !id) || new Set(pathIds.map((id) => id.toLowerCase())).size !== pathIds.length) {
+      setMessage("Each selectable path group needs its own unique heading (e.g. Group 1A, Group 1B) before saving.");
+      return;
+    }
+
     // A group name the admin typed by hand (not picked from suggestions)
-    // still joins the shared taxonomy, same as the Excel-import path.
+    // still joins the shared taxonomy, same as the Excel-import path —
+    // both the heading and the course group, so a new requirement group
+    // also shows in Admin > All Courses' group dropdown.
     let groups = courseGroups;
     cleanedGroups.forEach((block) => {
+      if (block.label) groups = addCourseGroup(block.label);
       if (block.group) groups = addCourseGroup(block.group);
     });
     setCourseGroups(groups);
@@ -589,6 +606,18 @@ function AdminUploadData() {
 
               <h4 className="upload-data-courses-title">Required Courses (by Group)</h4>
 
+              {(() => {
+                const paths = draft.groups.filter((b) => b.chooseOneGroup);
+                if (paths.length === 0) return null;
+                return (
+                  <p className="upload-data-path-summary">
+                    Student path options ({paths.length}):{" "}
+                    <strong>{paths.map((b) => b.label || b.group || "(untitled)").join("  •  ")}</strong>
+                    {paths.length < 2 && " — add at least one more path group so students have a choice."}
+                  </p>
+                );
+              })()}
+
               {draft.groups.map((block, index) => (
                 <div
                   className={`upload-data-block${dragIndex === index ? " upload-data-block-dragging" : ""}${dragOverIndex === index && dragIndex !== index ? " upload-data-block-drop-target" : ""}`}
@@ -704,7 +733,7 @@ function AdminUploadData() {
                       checked={Boolean(block.chooseOneGroup)}
                       onChange={(e) => updateBlock(block.id, "chooseOneGroup", e.target.checked)}
                     />
-                    Student picks only one group from this set (e.g. Group 1A vs 1B)
+                    Selectable path — student picks only one group from this set (e.g. Group 1A vs 1B)
                   </label>
 
                   <label className="upload-data-choose-one-field">
@@ -785,6 +814,11 @@ function AdminUploadData() {
               <button type="button" className="upload-data-add-course" onClick={addBlock}>
                 <Plus size={16} strokeWidth={2} />
                 <span>Add Requirement Group</span>
+              </button>
+
+              <button type="button" className="upload-data-add-course" onClick={addPathBlock}>
+                <Plus size={16} strokeWidth={2} />
+                <span>Add Selectable Path Group (like Group 1A / 1B)</span>
               </button>
 
               {message && <p className="upload-data-message">{message}</p>}
