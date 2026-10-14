@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef } from "react";
 import axios from "axios";
-import { Plus, RefreshCcw, Save, X, Settings } from "lucide-react";
+import { Plus, RefreshCcw, Save, X, Settings, Trash2 } from "lucide-react";
 import { getCourseGroups, addCourseGroup, renameCourseGroup, deleteCourseGroup } from "../utils/courseGroups.js";
 import "./AdminCourses.css";
 
@@ -23,6 +23,9 @@ function AdminCourses() {
   const [form, setForm] = useState(EMPTY_COURSE);
   const [showAdd, setShowAdd] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  // Two-step delete without a browser popup: first click arms it, second confirms.
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const [courseGroups, setCourseGroups] = useState(getCourseGroups());
   const [showGroupManager, setShowGroupManager] = useState(false);
   const editorRef = useRef(null);
@@ -65,6 +68,7 @@ function AdminCourses() {
   });
   }, [editingCode]);
   const startEdit = (course) => {
+    setConfirmDelete(false);
     setEditingCode(course.course_code);
     setShowAdd(false);
 
@@ -78,6 +82,7 @@ function AdminCourses() {
   };
 
   const cancelEdit = () => {
+    setConfirmDelete(false);
     setEditingCode(null);
     setShowAdd(false);
     setForm(EMPTY_COURSE);
@@ -116,6 +121,32 @@ function AdminCourses() {
       );
     } finally {
       setSaving(false);
+    }
+  };
+
+  const deleteCourse = async () => {
+    // First click only arms the button; the second click deletes.
+    if (!confirmDelete) {
+      setConfirmDelete(true);
+      return;
+    }
+
+    try {
+      setDeleting(true);
+      setError("");
+
+      await axios.delete(
+        `${API_BASE}/courses/${encodeURIComponent(editingCode || form.course_code)}`
+      );
+
+      await loadCourses();
+      cancelEdit();
+    } catch (err) {
+      console.error("Failed to delete course:", err);
+      setError(err.response?.data?.error || "Failed to delete course.");
+      setConfirmDelete(false);
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -331,6 +362,23 @@ function AdminCourses() {
           </div>
 
           <div className="admin-course-editor-actions">
+            {/* Delete is only offered when editing an existing course */}
+            {!showAdd && editingCode && (
+              <button
+                type="button"
+                className={`admin-courses-danger${confirmDelete ? " armed" : ""}`}
+                onClick={deleteCourse}
+                disabled={saving || deleting}
+              >
+                <Trash2 size={16} />
+                {deleting
+                  ? "Deleting..."
+                  : confirmDelete
+                  ? "Click again to delete"
+                  : "Delete"}
+              </button>
+            )}
+
             <button
               type="button"
               onClick={cancelEdit}

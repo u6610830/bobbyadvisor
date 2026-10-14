@@ -5,7 +5,6 @@ import AdminDashboard from "./AdminDashboard.jsx";
 import AdminCourseTimetable from "./AdminCourseTimetable.jsx";
 import AdminGraduationCheck from "./AdminGraduationCheck.jsx";
 import AdminUploadData from "./AdminUploadData.jsx";
-import AdminExcelCheck from "./AdminExcelCheck.jsx";
 import AdminPreRequire from "./AdminPreRequire.jsx";
 import AdminCourseRegistrations from "./AdminCourseRegistrations.jsx";
 import AdminCourses from "./AdminCourses.jsx";
@@ -19,8 +18,7 @@ const ADMIN_NAV_ITEMS = [
   { id: "manage-users", label: "Manage Users", icon: Users },
   { id: "timetable", label: "Course Timetable", icon: CalendarDays },
   { id: "graduation-check", label: "Graduation Check", icon: GraduationCap },
-  { id: "upload-data", label: "Upload Table Data", icon: TableProperties },
-  { id: "excel-check", label: "Check from Excel", icon: FileSpreadsheet },
+  { id: "upload-data", label: "Curriculum", icon: TableProperties },
   { id: "pre-require", label: "Pre-Require", icon: ListChecks },
   { id: "registrations", label: "Course Registrations", icon: ClipboardList },
   { id: "courses", label: "All Courses", icon: BookOpen },
@@ -46,7 +44,6 @@ function AdminPortal({ userId, onSignOut }) {
     if (activePage === "timetable") return <AdminCourseTimetable />;
     if (activePage === "graduation-check") return <AdminGraduationCheck key={graduationStudentId || "search"} initialStudentId={graduationStudentId} />;
     if (activePage === "upload-data") return <AdminUploadData />;
-    if (activePage === "excel-check") return <AdminExcelCheck />;
     if (activePage === "pre-require") return <AdminPreRequire />;
     if (activePage === "registrations") return <div className="reg-purple"><AdminCourseRegistrations /></div>;
     if (activePage === "courses") return <AdminCourses />;

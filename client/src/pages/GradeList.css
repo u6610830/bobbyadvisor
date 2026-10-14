@@ -399,6 +399,58 @@ button.grade-value.is-editable {
   color: var(--text-muted);
 }
 
+.grade-course-search {
+  position: relative;
+  width: 100%;
+}
+
+.grade-course-suggestions {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  max-height: 260px;
+  overflow-y: auto;
+  margin: 0;
+  padding: 5px;
+  list-style: none;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--card);
+  box-shadow: 0 8px 24px rgba(16, 24, 40, 0.14);
+}
+
+.grade-course-suggestions button {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  width: 100%;
+  padding: 9px 10px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-h);
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+}
+
+.grade-course-suggestions button:hover,
+.grade-course-suggestions button:focus-visible {
+  outline: none;
+  background: var(--accent-bg);
+}
+
+.grade-course-suggestions strong {
+  font-size: 13px;
+}
+
+.grade-course-suggestions span {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
 .grade-add-field input,
 .grade-add-field select {
   width: 100%;

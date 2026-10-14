@@ -74,6 +74,37 @@ function GradeList({ onNavigate, studentId }) {
   const [adding, setAdding] = useState(false);
   const [addError, setAddError] = useState("");
   const [newGrade, setNewGrade] = useState(EMPTY_NEW_GRADE);
+  const [allCourses, setAllCourses] = useState([]);
+  const [activeCourseSearch, setActiveCourseSearch] = useState(null);
+
+  useEffect(() => {
+    axios
+      .get(`${API_BASE}/courses`)
+      .then((response) => setAllCourses(response.data?.courses || []))
+      .catch((err) => console.warn("Could not load course catalog:", err.message));
+  }, []);
+
+  const courseQuery = activeCourseSearch
+    ? newGrade[activeCourseSearch].trim().toLowerCase()
+    : "";
+  const courseSuggestions = courseQuery
+    ? allCourses
+        .filter((course) =>
+          course.course_code?.toLowerCase().includes(courseQuery) ||
+          course.course_title?.toLowerCase().includes(courseQuery)
+        )
+        .slice(0, 10)
+    : [];
+
+  const selectCourse = (course) => {
+    setNewGrade((prev) => ({
+      ...prev,
+      course_code: course.course_code || "",
+      course_name: course.course_title || "",
+      credits: course.credits ?? "",
+    }));
+    setActiveCourseSearch(null);
+  };
 
   // Deleting a grade
   // Grades marked for deletion while editing — nothing is deleted until Save.
@@ -394,15 +425,7 @@ function GradeList({ onNavigate, studentId }) {
               <div className="grade-add-header">
                 <h3>Add Grade</h3>
 
-                <button
-                  type="button"
-                  className="grade-add-close"
-                  onClick={closeAddForm}
-                  disabled={adding}
-                  aria-label="Close"
-                >
-                  <X size={18} />
-                </button>
+            
               </div>
 
               <div
@@ -413,32 +436,62 @@ function GradeList({ onNavigate, studentId }) {
               >
                 <div className="grade-add-field">
                   <label>Course Code</label>
-                  <input
-                    type="text"
-                    placeholder="e.g. CSX3002"
-                    value={newGrade.course_code}
-                    onChange={(e) =>
-                      setNewGrade((prev) => ({
-                        ...prev,
-                        course_code: e.target.value,
-                      }))
-                    }
-                  />
+                  <div className="grade-course-search">
+                    <input
+                      type="text"
+                      placeholder="e.g. CSX3002"
+                      value={newGrade.course_code}
+                      autoComplete="off"
+                      onFocus={() => setActiveCourseSearch("course_code")}
+                      onBlur={() => setTimeout(() => setActiveCourseSearch(null), 120)}
+                      onChange={(e) => {
+                        setNewGrade((prev) => ({ ...prev, course_code: e.target.value }));
+                        setActiveCourseSearch("course_code");
+                      }}
+                    />
+                    {activeCourseSearch === "course_code" && courseSuggestions.length > 0 && (
+                      <ul className="grade-course-suggestions">
+                        {courseSuggestions.map((course) => (
+                          <li key={course.course_code}>
+                            <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => selectCourse(course)}>
+                              <strong>{course.course_code}</strong>
+                              <span>{course.course_title || ""}</span>
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
                 </div>
 
                 <div className="grade-add-field is-wide">
                   <label>Course Name</label>
-                  <input
-                    type="text"
-                    placeholder="e.g. Object-Oriented Concepts and Programming"
-                    value={newGrade.course_name}
-                    onChange={(e) =>
-                      setNewGrade((prev) => ({
-                        ...prev,
-                        course_name: e.target.value,
-                      }))
-                    }
-                  />
+                  <div className="grade-course-search">
+                    <input
+                      type="text"
+                      placeholder="e.g. Object-Oriented Concepts and Programming"
+                      value={newGrade.course_name}
+                      autoComplete="off"
+                      onFocus={() => setActiveCourseSearch("course_name")}
+                      onBlur={() => setTimeout(() => setActiveCourseSearch(null), 120)}
+                      onChange={(e) => {
+                        setNewGrade((prev) => ({ ...prev, course_name: e.target.value }));
+                        setActiveCourseSearch("course_name");
+                      }}
+                    />
+                    {activeCourseSearch === "course_name" && courseSuggestions.length > 0 && (
+                      <ul className="grade-course-suggestions">
+                        {courseSuggestions.map((course) => (
+                          <li key={course.course_code}>
+                            <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => selectCourse(course)}>
+                              <strong>{course.course_code}</strong>
+                              <span>{course.course_title || ""}</span>
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
                 </div>
 
                 <div className="grade-add-field">

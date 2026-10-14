@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import axios from "axios";
 import {
   RefreshCcw,
+  Search,
   Users,
   ChevronDown,
 } from "lucide-react";
@@ -25,6 +26,9 @@ function RequestedCourses({
   const [requestedCourses, setRequestedCourses] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+
+  // Student search — same as Course Registrations
+  const [studentSearch, setStudentSearch] = useState("");
 
   // Which course detail is currently opened
   const [expandedCourses, setExpandedCourses] = useState(
@@ -120,13 +124,33 @@ function RequestedCourses({
   }, [advisorId]);
 
   // ------------------------------------------------
+  // Search: keeps only the requests made by matching students
+  // (by student ID, or by name when the student is on the roster)
+  // ------------------------------------------------
+
+  const visibleRequests = useMemo(() => {
+    const query = studentSearch.trim().toUpperCase();
+
+    if (!query) return requestedCourses;
+
+    return requestedCourses.filter((row) => {
+      const id = String(row.student_id || "").toUpperCase();
+      const name = String(
+        studentById.get(String(row.student_id))?.displayName || ""
+      ).toUpperCase();
+
+      return id.includes(query) || name.includes(query);
+    });
+  }, [requestedCourses, studentSearch, studentById]);
+
+  // ------------------------------------------------
   // Group by course
   // ------------------------------------------------
 
   const byCourse = useMemo(() => {
     const groups = new Map();
 
-    requestedCourses.forEach((row) => {
+    visibleRequests.forEach((row) => {
       const courseCode = String(
         row.course_code || ""
       )
@@ -179,7 +203,7 @@ function RequestedCourses({
           );
         }
       );
-  }, [requestedCourses]);
+  }, [visibleRequests]);
 
   // ------------------------------------------------
   // Total students
@@ -187,11 +211,11 @@ function RequestedCourses({
 
   const uniqueStudents = useMemo(() => {
     return new Set(
-      requestedCourses
+      visibleRequests
         .map((row) => row.student_id)
         .filter(Boolean)
     ).size;
-  }, [requestedCourses]);
+  }, [visibleRequests]);
 
   // ------------------------------------------------
   // Render
@@ -247,7 +271,7 @@ function RequestedCourses({
             <span>
               Total requests:{" "}
               <strong>
-                {requestedCourses.length}
+                {visibleRequests.length}
               </strong>
             </span>
 
@@ -264,6 +288,17 @@ function RequestedCourses({
                 {byCourse.length}
               </strong>
             </span>
+
+            <label className="reg-admin-student-search">
+              <Search size={16} strokeWidth={2} aria-hidden="true" />
+              <input
+                type="search"
+                value={studentSearch}
+                onChange={(event) => setStudentSearch(event.target.value)}
+                placeholder="Search student ID (e.g. U6610001)"
+                aria-label="Search requested courses by student ID"
+              />
+            </label>
 
           </div>
         )}
@@ -297,8 +332,9 @@ function RequestedCourses({
         !error &&
         byCourse.length === 0 && (
           <p className="reg-admin-empty">
-            No student has requested an
-            unscheduled course yet.
+            {studentSearch.trim()
+              ? `No requested courses found for ${studentSearch.trim()}.`
+              : "No student has requested an unscheduled course yet."}
           </p>
         )}
 

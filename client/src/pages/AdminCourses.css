@@ -220,3 +220,22 @@
     grid-column: auto;
   }
 }
+
+/* Delete button in the course editor (left side, red). */
+.admin-course-editor-actions .admin-courses-danger {
+  margin-right: auto;
+  border-color: #FCA5A5;
+  background: #FEF2F2;
+  color: #B91C1C;
+}
+
+.admin-course-editor-actions .admin-courses-danger.armed {
+  background: #DC2626;
+  border-color: #DC2626;
+  color: #FFFFFF;
+}
+
+.admin-course-editor-actions .admin-courses-danger:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}

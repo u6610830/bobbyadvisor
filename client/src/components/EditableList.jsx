@@ -11,6 +11,7 @@ function EditableList({
   emptyMessage = "Nothing here yet.",
   renderLabel,
   showEdit = true,
+  showAdd = true,
 }) {
   const [draft, setDraft] = useState("");
   const [editingIndex, setEditingIndex] = useState(null);
@@ -144,7 +145,7 @@ function EditableList({
         ))}
       </ul>
 
-      <form className="editable-list-add" onSubmit={handleAdd}>
+      {showAdd && <form className="editable-list-add" onSubmit={handleAdd}>
         <div className="editable-list-search">
           <input
             value={draft}
@@ -176,7 +177,7 @@ function EditableList({
         >
           Add
         </button>
-      </form>
+      </form>}
     </div>
   );
 }

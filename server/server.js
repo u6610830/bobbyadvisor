@@ -2213,7 +2213,7 @@ app.get("/prerequisites/check", async (req, res) => {
 });
 
 // ------------------------------------------------
-// CURRICULUM REQUIREMENTS: Admin "Upload Table Data" (full CRUD) + the
+// CURRICULUM REQUIREMENTS: Admin "Curriculum" (full CRUD) + the
 // Student Planner / Graduation Check (read-only there). See
 // server/supabase_curricula.sql for the table definitions.
 // ------------------------------------------------
@@ -2234,7 +2234,7 @@ function groupRowToBlock(row) {
     // Table Data — see supabase_curriculum_groups_choose_one.sql and
     // client/src/utils/electiveGroup.js.
     chooseOneGroup: Boolean(row.is_choose_one_group),
-    // Admin's "Student can add subject" checkbox on Upload Table Data —
+    // Admin's "Student can add subject" checkbox on Curriculum —
     // see supabase_curriculum_groups_allow_add.sql and
     // client/src/utils/studentElectiveCourses.js canAddCourseToGroup.
     allowAddCourse: Boolean(row.allow_add_course),
@@ -2391,7 +2391,8 @@ app.get("/student-elective-group/:studentId", async (req, res) => {
     const { data, error } = await supabase
       .from("students")
       .select("student_id, elective_group")
-      .eq("student_id", studentId)
+      .ilike("student_id", studentId)
+      .limit(1)
       .maybeSingle();
 
     if (error) return res.status(500).json({ error: error.message });
@@ -2413,7 +2414,7 @@ app.put("/student-elective-group/:studentId", async (req, res) => {
 
     // Not hard-coded to any particular group name — this stores whichever
     // group heading (block.label) the student picked from the "choose one
-    // of these groups" set Admin ticked on Upload Table Data, e.g. "Major
+    // of these groups" set Admin ticked on Curriculum, e.g. "Major
     // Elective Courses (Group 1A) - Software Engineering and Development".
     // See client/src/utils/electiveGroup.js getBlockElectiveGroupId for the
     // matching shape used when reading these blocks back out.
@@ -2789,7 +2790,7 @@ app.post("/chat/bobby", async (req, res) => {
     // Bobby's numbers always match what the student sees on those pages:
     //  - A, A-, B+, B, B-, C+, C and S always count as completed.
     //  - C- and D count as completed for ordinary courses, BUT NOT for a
-    //    course Admin ticked "Min C" on (Upload Table Data > minGradeC) —
+    //    course Admin ticked "Min C" on (Curriculum > minGradeC) —
     //    those need at least a C, otherwise the student must retake.
     //  - F, W, R, I and blank never count.
     //  - One effective attempt per course: a passing retake replaces earlier
@@ -5433,42 +5434,98 @@ app.get("/students", async (req, res) => {
 // GET ONE STUDENT
 // ------------------------------------------------
 
+// Finds a student from whatever the admin typed: "U6610001", "u6610001",
+// "6610001" (no U), with stray spaces, or a unique part of the ID. The stored
+// ID is not always written exactly like the one typed, which made the lookup
+// "recognise" only some students.
+async function findStudentByLooseId(typed, columns) {
+  const raw = String(typed || "").trim().replace(/[^A-Za-z0-9-]/g, "");
+  if (!raw) return null;
+  const digits = raw.replace(/\D/g, "");
+
+  const candidates = [...new Set([raw, raw.toUpperCase(), digits && `U${digits}`, digits].filter(Boolean))];
+  for (const candidate of candidates) {
+    const { data, error } = await supabase
+      .from("students")
+      .select(columns)
+      .ilike("student_id", candidate)
+      .limit(1);
+    if (error) throw error;
+    if (data && data.length > 0) return data[0];
+  }
+
+  // The typed digits appear inside exactly one stored ID.
+  if (digits.length >= 5) {
+    const { data, error } = await supabase
+      .from("students")
+      .select(columns)
+      .ilike("student_id", `%${digits}%`)
+      .limit(2);
+    if (error) throw error;
+    if (data && data.length === 1) return data[0];
+  }
+
+  // An email address or a name that identifies exactly one student.
+  const text = String(typed || "").trim();
+  if (text.length >= 3) {
+    const pattern = text.replace(/[%_,()]/g, " ").trim();
+    const { data, error } = await supabase
+      .from("students")
+      .select(columns)
+      .or(`email.ilike.${pattern},name.ilike.%${pattern}%`)
+      .limit(2);
+    if (error) throw error;
+    if (data && data.length === 1) return data[0];
+  }
+  return null;
+}
+
 app.get("/students/:studentId", async (req, res) => {
   try {
-    const studentId = String(
-      req.params.studentId || ""
-    )
-      .trim()
-      .toUpperCase();
+    const typedId = String(req.params.studentId || "").trim();
 
-    if (!studentId) {
+    if (!typedId) {
       return res.status(400).json({
         error: "Student ID is required."
       });
     }
 
-    const { data, error } =
-      await supabase
-        .from("students")
-        .select(
-          "student_id, name, email, advisor_id, curriculum_year, elective_group, email_verified, goals, career_interests"
-        )
-        .ilike(
-          "student_id",
-          studentId
-        )
-        .maybeSingle();
-
-    if (error) {
-      return res.status(500).json({
-        error: error.message
-      });
-    }
+    const data = await findStudentByLooseId(
+      typedId,
+      "student_id, name, email, advisor_id, curriculum_year, elective_group, email_verified, goals, career_interests"
+    );
 
     if (!data) {
+      // Not in the students table (e.g. grades were uploaded for an ID that
+      // never registered): still let the admin check them from their grades.
+      const digits = typedId.replace(/\D/g, "");
+      const gradeCandidates = [...new Set([typedId.toUpperCase(), digits && `U${digits}`, digits].filter(Boolean))];
+      for (const candidate of gradeCandidates) {
+        const { data: gradeRows, error: gradeError } = await supabase
+          .from("grades")
+          .select("student_id")
+          .ilike("student_id", candidate)
+          .limit(1);
+        if (gradeError) break;
+        if (gradeRows && gradeRows.length > 0) {
+          return res.json({
+            student: {
+              student_id: gradeRows[0].student_id,
+              name: null,
+              email: null,
+              advisor_id: null,
+              curriculum_year: null,
+              elective_group: null,
+              goals: [],
+              career_interests: [],
+              not_registered: true
+            }
+          });
+        }
+      }
+
       return res.status(404).json({
-        error:
-          "Student ID not recognized."
+        error: `Student ID "${typedId}" not recognized. Check the ID, or make sure the server has been restarted.`
       });
     }
 
@@ -6336,6 +6393,22 @@ app.get("/courses", async (req, res) => {
 });
 
 
+// The code stored in the courses table is not always written exactly like the
+// normalised one (e.g. "CSX 3001", lowercase, extra spaces). Returns every stored
+// code that refers to the same course.
+async function findStoredCourseCodes(rawCodeValue) {
+  const rawCode = String(rawCodeValue || "").trim();
+  const normalized = normalizeCourseCode(rawCode);
+  const storedRows = await fetchAllRows(COURSES_TABLE, "course_code", 1000, "course_code");
+  return [
+    ...new Set(
+      storedRows
+        .map((row) => row.course_code)
+        .filter((code) => code === rawCode || (normalized && normalizeCourseCode(code) === normalized))
+    )
+  ];
+}
+
 // Add a new course
 app.post("/courses", async (req, res) => {
   try {
@@ -6519,6 +6592,39 @@ app.put("/courses/:courseCode", async (req, res) => {
       "Unknown server error",
   });
 }
+});
+
+
+// Delete a course (admin clicks Edit, then Delete)
+app.delete("/courses/:courseCode", async (req, res) => {
+  try {
+    const storedCodes = await findStoredCourseCodes(req.params.courseCode);
+
+    if (storedCodes.length === 0) {
+      return res.status(404).json({
+        error: "Course was not found."
+      });
+    }
+
+    const { error } = await supabase
+      .from(COURSES_TABLE)
+      .delete()
+      .in("course_code", storedCodes);
+
+    if (error) {
+      return res.status(500).json({
+        error: error.message
+      });
+    }
+
+    res.json({ deleted: storedCodes });
+  } catch (error) {
+    console.error("DELETE /courses error:", error);
+
+    res.status(500).json({
+      error: error.message
+    });
+  }
 });
 
 // ------------------------------------------------

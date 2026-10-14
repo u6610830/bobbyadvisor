@@ -6,6 +6,8 @@ import {
   RefreshCcw,
   GraduationCap,
   Send,
+  Check,
+  X,
 } from "lucide-react";
 
 import StudentGraduationCheck from "./StudentGraduationCheck.jsx";
@@ -55,10 +57,7 @@ function calculateGPA(grades) {
       .toUpperCase();
 
     return (
-      Object.prototype.hasOwnProperty.call(
-        GRADE_POINTS,
-        grade
-      ) &&
+      Object.prototype.hasOwnProperty.call(GRADE_POINTS, grade) &&
       Number(row.credits) > 0
     );
   });
@@ -72,24 +71,15 @@ function calculateGPA(grades) {
     return 0;
   }
 
-  const totalPoints = validGrades.reduce(
-    (sum, row) => {
-      const grade = String(row.grade || "")
-        .trim()
-        .toUpperCase();
+  const totalPoints = validGrades.reduce((sum, row) => {
+    const grade = String(row.grade || "")
+      .trim()
+      .toUpperCase();
 
-      return (
-        sum +
-        GRADE_POINTS[grade] *
-          Number(row.credits)
-      );
-    },
-    0
-  );
+    return sum + GRADE_POINTS[grade] * Number(row.credits);
+  }, 0);
 
-  return roundGPA(
-    totalPoints / totalCredits
-  );
+  return roundGPA(totalPoints / totalCredits);
 }
 
 function calculateCredits(grades, curriculum) {
@@ -126,17 +116,22 @@ function InstructorStudentAnalytics({
   onBack,
   onOpenChat,
 }) {
-  const actualStudentId =
-  studentRecord?.student_id || studentId || "";
+  const actualStudentId = studentRecord?.student_id || studentId || "";
 
-const displayName =
-  studentRecord?.name || actualStudentId || "Unknown";
+  const displayName =
+    studentRecord?.name || actualStudentId || "Unknown";
 
-const studentEmail =
-  studentRecord?.email || "Not provided";
+  const studentEmail = studentRecord?.email || "Not provided";
 
   const [grades, setGrades] = useState([]);
   const [savedCourses, setSavedCourses] = useState([]);
+
+  // Advisor approval of the student's saved course plan.
+  // approval = { status: "pending" | "approved" | "rejected", ... } or null
+  // when the student hasn't saved a plan yet.
+  const [approval, setApproval] = useState(null);
+  const [reviewingPlan, setReviewingPlan] = useState(false);
+  const [approvalError, setApprovalError] = useState("");
 
   // course_code -> course_title, from Admin's All Courses catalog, so
   // Registered Courses below can show the course name, not just the code.
@@ -152,11 +147,8 @@ const studentEmail =
   const [recommendationMessage, setRecommendationMessage] = useState("");
   const [showRecommendCourse, setShowRecommendCourse] = useState(false);
 
-  const [loadingGrades, setLoadingGrades] =
-    useState(false);
-
-  const [loadingSavedCourses, setLoadingSavedCourses] =
-    useState(false);
+  const [loadingGrades, setLoadingGrades] = useState(false);
+  const [loadingSavedCourses, setLoadingSavedCourses] = useState(false);
 
   const [error, setError] = useState("");
   const [messageUnreadCount, setMessageUnreadCount] = useState(0);
@@ -164,14 +156,10 @@ const studentEmail =
   // Whether the Graduation Check panel below is expanded. It's the same
   // StudentGraduationCheck component the student sees on their own page
   // (read-only here) — passing this student's actualStudentId means every
-  // fetch inside it (grades, registrations, curriculum, elective courses)
-  // is scoped to this one student from the database, same as everywhere
-  // else on this page; no other student's data can show up here.
+  // fetch inside it is scoped to this one student from the database.
   const [showGraduationCheck, setShowGraduationCheck] = useState(false);
 
   // Unread student -> advisor messages for this specific student.
-  // This lets the "Message with ..." button show the same notification
-  // count as the advisor's Student List / sidebar.
   useEffect(() => {
     if (!actualStudentId || !advisorId) {
       setMessageUnreadCount(0);
@@ -221,6 +209,8 @@ const studentEmail =
     if (!actualStudentId) {
       setGrades([]);
       setSavedCourses([]);
+      setApproval(null);
+      setApprovalError("");
       setLoadingGrades(false);
       setLoadingSavedCourses(false);
       setError("");
@@ -233,62 +223,50 @@ const studentEmail =
       setLoadingGrades(true);
       setLoadingSavedCourses(true);
       setError("");
+      setApprovalError("");
 
       try {
-        /*
-          Load grades and registrations at the same time.
+        // Load grades and registrations at the same time.
+        const [gradesResponse, registrationsResponse] = await Promise.all([
+          axios.get(`${API_BASE}/grades`, {
+            params: {
+              student_id: actualStudentId,
+            },
+          }),
 
-          Promise.all makes sure changing students loads
-          both parts of the report together.
-        */
-        const [gradesResponse, registrationsResponse] =
-          await Promise.all([
-            axios.get(`${API_BASE}/grades`, {
-              params: {
-                student_id: actualStudentId,
-              },
-            }),
-
-            axios.get(
-              `${API_BASE}/registrations/${encodeURIComponent(
-                actualStudentId
-              )}`
-            ),
-          ]);
+          axios.get(
+            `${API_BASE}/registrations/${encodeURIComponent(actualStudentId)}`
+          ),
+        ]);
 
         if (cancelled) {
           return;
         }
 
-        const gradeData = Array.isArray(
-          gradesResponse.data
-        )
+        const gradeData = Array.isArray(gradesResponse.data)
           ? gradesResponse.data
           : [];
 
         const registrationData =
-          registrationsResponse.data
-            ?.registrations || [];
+          registrationsResponse.data?.registrations || [];
 
         setGrades(gradeData);
         setSavedCourses(registrationData);
+        setApproval(registrationsResponse.data?.approval || null);
       } catch (error) {
         if (cancelled) {
           return;
         }
 
-        console.error(
-          "Failed to load student data:",
-          error
-        );
+        console.error("Failed to load student data:", error);
 
         setError(
-          error.response?.data?.error ||
-            "Failed to load student data."
+          error.response?.data?.error || "Failed to load student data."
         );
 
         setGrades([]);
         setSavedCourses([]);
+        setApproval(null);
       } finally {
         if (!cancelled) {
           setLoadingGrades(false);
@@ -299,18 +277,15 @@ const studentEmail =
 
     loadStudentData();
 
-    /*
-      Prevent an older request from overwriting the
-      newly selected student's data.
-    */
+    // Prevent an older request from overwriting the newly selected
+    // student's data.
     return () => {
       cancelled = true;
     };
   }, [actualStudentId]);
 
   // Pull Admin's course catalog once so Registered Courses can show each
-  // course's name alongside its code/section (same lookup pattern as
-  // Planner.jsx's course group lookup).
+  // course's name alongside its code/section.
   useEffect(() => {
     axios
       .get(`${API_BASE}/courses`)
@@ -331,9 +306,7 @@ const studentEmail =
       );
   }, []);
 
-  // Collapse the Graduation Check panel when switching students so it
-  // doesn't stay expanded showing (briefly, until it refetches) the
-  // previous student's layout.
+  // Collapse the Graduation Check panel when switching students.
   useEffect(() => {
     setShowGraduationCheck(false);
   }, [actualStudentId]);
@@ -347,10 +320,7 @@ const studentEmail =
     [actualStudentId]
   );
 
-  const gpa = useMemo(
-    () => calculateGPA(grades),
-    [grades]
-  );
+  const gpa = useMemo(() => calculateGPA(grades), [grades]);
 
   const credits = useMemo(
     () => calculateCredits(grades, curriculum),
@@ -365,10 +335,7 @@ const studentEmail =
     const groups = new Map();
 
     grades.forEach((grade) => {
-      const semester =
-        grade.Semester ||
-        grade.semester ||
-        "Unknown";
+      const semester = grade.Semester || grade.semester || "Unknown";
 
       if (!groups.has(semester)) {
         groups.set(semester, []);
@@ -388,8 +355,7 @@ const studentEmail =
     const search = courseSearchTerm.trim().toLowerCase();
 
     // No search yet: list every course. The dropdown box itself stays a
-    // fixed height (see .analytics-course-suggestions) and just scrolls,
-    // so this doesn't change how the empty state looks.
+    // fixed height and just scrolls.
     if (!search) return courseCatalog;
 
     return courseCatalog
@@ -404,14 +370,16 @@ const studentEmail =
   const handleSelectCourseSuggestion = (course) => {
     setRecommendCourseCode(course.course_code);
     setCourseSearchTerm(
-      `${course.course_code}${course.course_title ? ` - ${course.course_title}` : ""}`
+      `${course.course_code}${
+        course.course_title ? ` - ${course.course_title}` : ""
+      }`
     );
     setShowCourseSuggestions(false);
     setRecommendationMessage("");
   };
 
   // --------------------------------------------------
-  // Refresh
+  // Send recommendation
   // --------------------------------------------------
 
   const handleSendRecommendation = async () => {
@@ -459,6 +427,44 @@ const studentEmail =
     }
   };
 
+  // --------------------------------------------------
+  // Approve / reject the student's saved course plan
+  // --------------------------------------------------
+
+  const handleReviewPlan = async (status) => {
+    const currentAdvisorId = String(advisorId || "").trim().toUpperCase();
+
+    if (!currentAdvisorId) {
+      setApprovalError("Could not determine the advisor.");
+      return;
+    }
+
+    try {
+      setReviewingPlan(true);
+      setApprovalError("");
+
+      const { data } = await axios.patch(
+        `${API_BASE}/planner-approvals/${encodeURIComponent(
+          actualStudentId
+        )}`,
+        { advisorId: currentAdvisorId, status }
+      );
+
+      setApproval(data?.approval || { status });
+    } catch (error) {
+      console.error("Failed to review plan:", error);
+      setApprovalError(
+        error.response?.data?.error || "Failed to update plan approval."
+      );
+    } finally {
+      setReviewingPlan(false);
+    }
+  };
+
+  // --------------------------------------------------
+  // Refresh
+  // --------------------------------------------------
+
   const handleRefresh = async () => {
     if (!actualStudentId) {
       return;
@@ -467,12 +473,10 @@ const studentEmail =
     setLoadingGrades(true);
     setLoadingSavedCourses(true);
     setError("");
+    setApprovalError("");
 
     try {
-      const [
-        gradesResponse,
-        registrationsResponse,
-      ] = await Promise.all([
+      const [gradesResponse, registrationsResponse] = await Promise.all([
         axios.get(`${API_BASE}/grades`, {
           params: {
             student_id: actualStudentId,
@@ -480,31 +484,21 @@ const studentEmail =
         }),
 
         axios.get(
-          `${API_BASE}/registrations/${encodeURIComponent(
-            actualStudentId
-          )}`
+          `${API_BASE}/registrations/${encodeURIComponent(actualStudentId)}`
         ),
       ]);
 
       setGrades(
-        Array.isArray(gradesResponse.data)
-          ? gradesResponse.data
-          : []
+        Array.isArray(gradesResponse.data) ? gradesResponse.data : []
       );
 
-      setSavedCourses(
-        registrationsResponse.data?.registrations ||
-          []
-      );
+      setSavedCourses(registrationsResponse.data?.registrations || []);
+      setApproval(registrationsResponse.data?.approval || null);
     } catch (error) {
-      console.error(
-        "Failed to refresh student data:",
-        error
-      );
+      console.error("Failed to refresh student data:", error);
 
       setError(
-        error.response?.data?.error ||
-          "Failed to refresh student data."
+        error.response?.data?.error || "Failed to refresh student data."
       );
     } finally {
       setLoadingGrades(false);
@@ -519,13 +513,28 @@ const studentEmail =
   if (!actualStudentId) {
     return (
       <div className="analytics-empty">
-        <p>
-          Select a student from Student List to see
-          their report.
-        </p>
+        <p>Select a student from Student List to see their report.</p>
       </div>
     );
   }
+
+  // --------------------------------------------------
+  // Plan approval status (for the badge + buttons)
+  // --------------------------------------------------
+
+  const planStatus =
+    approval?.status === "approved" || approval?.status === "rejected"
+      ? approval.status
+      : "pending";
+
+  const planStatusLabel =
+    planStatus === "approved"
+      ? "Approved"
+      : planStatus === "rejected"
+      ? "Rejected"
+      : "Pending approval";
+
+  const hasSavedPlan = !loadingSavedCourses && savedCourses.length > 0;
 
   // --------------------------------------------------
   // Render
@@ -533,68 +542,45 @@ const studentEmail =
 
   return (
     <div className="analytics-page">
-
       {/* --------------------------------------------
           Header
       --------------------------------------------- */}
 
       <div className="analytics-header">
-        <span className="analytics-title-pill">
-          Report &amp; Analytics
-        </span>
+        <span className="analytics-title-pill">Report &amp; Analytics</span>
 
         <div className="analytics-header-actions">
-
           <button
             type="button"
             className="analytics-back"
             onClick={onBack}
           >
-            <ArrowLeft
-              size={16}
-              strokeWidth={2}
-            />
+            <ArrowLeft size={16} strokeWidth={2} />
 
-            <span>
-              Back to Student List
-            </span>
+            <span>Back to Student List</span>
           </button>
 
           <button
             type="button"
             className="analytics-refresh"
             onClick={handleRefresh}
-            disabled={
-              loadingGrades ||
-              loadingSavedCourses
-            }
+            disabled={loadingGrades || loadingSavedCourses}
             title="Refresh student data"
           >
-            <RefreshCcw
-              size={15}
-              strokeWidth={2}
-            />
+            <RefreshCcw size={15} strokeWidth={2} />
 
             <span>
-              {loadingGrades ||
-              loadingSavedCourses
-                ? "Loading..."
-                : "Refresh"}
+              {loadingGrades || loadingSavedCourses ? "Loading..." : "Refresh"}
             </span>
           </button>
 
           <button
             type="button"
             className="analytics-graduation-btn"
-            onClick={() =>
-              setShowGraduationCheck((prev) => !prev)
-            }
+            onClick={() => setShowGraduationCheck((prev) => !prev)}
             aria-expanded={showGraduationCheck}
           >
-            <GraduationCap
-              size={16}
-              strokeWidth={2}
-            />
+            <GraduationCap size={16} strokeWidth={2} />
 
             <span>
               {showGraduationCheck
@@ -612,7 +598,9 @@ const studentEmail =
             <Send size={16} strokeWidth={2} />
 
             <span>
-              {showRecommendCourse ? "Hide Recommend Course" : "Recommend Course"}
+              {showRecommendCourse
+                ? "Hide Recommend Course"
+                : "Recommend Course"}
             </span>
           </button>
 
@@ -626,24 +614,16 @@ const studentEmail =
               onOpenChat(actualStudentId);
             }}
           >
-            <MessageCircle
-              size={16}
-              strokeWidth={2}
-            />
+            <MessageCircle size={16} strokeWidth={2} />
 
-            <span>
-              Message with {displayName}
-            </span>
+            <span>Message with {displayName}</span>
 
             {messageUnreadCount > 0 && (
               <span className="analytics-message-unread-badge">
-                {messageUnreadCount > 99
-                  ? "99+"
-                  : messageUnreadCount}
+                {messageUnreadCount > 99 ? "99+" : messageUnreadCount}
               </span>
             )}
           </button>
-
         </div>
       </div>
 
@@ -678,28 +658,33 @@ const studentEmail =
                 autoComplete="off"
               />
 
-              {showCourseSuggestions && filteredCourseSuggestions.length > 0 && (
-                <div className="analytics-course-suggestions">
-                  {filteredCourseSuggestions.map((course) => (
-                    <button
-                      type="button"
-                      key={course.id || course.course_code}
-                      className="analytics-course-suggestion"
-                      onMouseDown={(e) => e.preventDefault()}
-                      onClick={() => handleSelectCourseSuggestion(course)}
-                    >
-                      <strong>{course.course_code}</strong>
-                      {course.course_title && <span>{course.course_title}</span>}
-                    </button>
-                  ))}
-                </div>
-              )}
+              {showCourseSuggestions &&
+                filteredCourseSuggestions.length > 0 && (
+                  <div className="analytics-course-suggestions">
+                    {filteredCourseSuggestions.map((course) => (
+                      <button
+                        type="button"
+                        key={course.id || course.course_code}
+                        className="analytics-course-suggestion"
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => handleSelectCourseSuggestion(course)}
+                      >
+                        <strong>{course.course_code}</strong>
+                        {course.course_title && (
+                          <span>{course.course_title}</span>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                )}
 
               {showCourseSuggestions &&
                 courseSearchTerm.trim() &&
                 filteredCourseSuggestions.length === 0 && (
                   <div className="analytics-course-suggestions">
-                    <p className="analytics-course-no-match">No matching courses</p>
+                    <p className="analytics-course-no-match">
+                      No matching courses
+                    </p>
                   </div>
                 )}
             </div>
@@ -723,7 +708,9 @@ const studentEmail =
             </button>
 
             {recommendationMessage && (
-              <p className="analytics-recommend-message">{recommendationMessage}</p>
+              <p className="analytics-recommend-message">
+                {recommendationMessage}
+              </p>
             )}
           </div>
         </div>
@@ -733,11 +720,7 @@ const studentEmail =
           Error
       --------------------------------------------- */}
 
-      {error && (
-        <div className="analytics-error">
-          {error}
-        </div>
-      )}
+      {error && <div className="analytics-error">{error}</div>}
 
       {/* --------------------------------------------
           Graduation Check (read-only) — the exact same
@@ -759,16 +742,11 @@ const studentEmail =
         <h3>Student Information</h3>
 
         <ul>
-          <li>
-            Name: {displayName}
-          </li>
+          <li>Name: {displayName}</li>
 
-          <li>
-            Student ID: {actualStudentId}
-          </li>
-        <li>
-            Email: {studentEmail}
-          </li>
+          <li>Student ID: {actualStudentId}</li>
+
+          <li>Email: {studentEmail}</li>
         </ul>
       </div>
 
@@ -777,89 +755,98 @@ const studentEmail =
       --------------------------------------------- */}
 
       <div className="analytics-card">
-        <h3>
-          Student Progress Report
-        </h3>
+        <h3>Student Progress Report</h3>
 
         {loadingGrades ? (
           <p>Loading grades...</p>
         ) : (
           <ul>
-            <li>
-              GPA: {gpa.toFixed(2)}
-            </li>
+            <li>GPA: {gpa.toFixed(2)}</li>
 
-            <li>
-              Credits Earned: {credits}
-            </li>
+            <li>Credits Earned: {credits}</li>
 
-            <li>
-              Total Courses: {grades.length}
-            </li>
+            <li>Total Courses: {grades.length}</li>
           </ul>
         )}
       </div>
 
-      
-
       {/* --------------------------------------------
-          Saved Course Plan
+          Registered Courses + advisor approval
       --------------------------------------------- */}
 
       <div className="analytics-card">
-        <h3>
-          Registered Courses
-        </h3>
+        <div className="analytics-plan-head">
+          <h3>Planned Courses</h3>
 
-        {loadingSavedCourses && (
-          <p>Loading...</p>
+          {hasSavedPlan && (
+            <div className="analytics-plan-actions">
+              <span
+                className={`analytics-plan-status analytics-plan-${planStatus}`}
+              >
+                {planStatusLabel}
+              </span>
+
+              <button
+                type="button"
+                className="analytics-plan-btn analytics-plan-approve"
+                onClick={() => handleReviewPlan("approved")}
+                disabled={reviewingPlan || planStatus === "approved"}
+              >
+                <Check size={14} strokeWidth={2.5} />
+                <span>Approve</span>
+              </button>
+
+              <button
+                type="button"
+                className="analytics-plan-btn analytics-plan-reject"
+                onClick={() => handleReviewPlan("rejected")}
+                disabled={reviewingPlan || planStatus === "rejected"}
+              >
+                <X size={14} strokeWidth={2.5} />
+                <span>Reject</span>
+              </button>
+            </div>
+          )}
+        </div>
+
+        {approvalError && (
+          <p className="analytics-plan-error">{approvalError}</p>
         )}
 
-        {!loadingSavedCourses &&
-          savedCourses.length === 0 && (
-            <p className="analytics-empty-note">
-              This student hasn&apos;t saved a
-              course plan yet.
-            </p>
-          )}
+        {loadingSavedCourses && <p>Loading...</p>}
 
-        {!loadingSavedCourses &&
-          savedCourses.length > 0 && (
-            <ul>
-              {savedCourses.map(
-                (row, index) => {
-                  const courseTitle =
-                    courseTitleByCode[
-                      normalizeCourseCode(row.course_code)
-                    ];
+        {!loadingSavedCourses && savedCourses.length === 0 && (
+          <p className="analytics-empty-note">
+            This student hasn&apos;t saved a course plan yet.
+          </p>
+        )}
 
-                  const codeAndSection =
-                    row.course_label ||
-                    `${row.course_code}${
-                      row.section
-                        ? ` Sec.${row.section}`
-                        : ""
-                    }`;
+        {hasSavedPlan && (
+          <ul>
+            {savedCourses.map((row, index) => {
+              const courseTitle =
+                courseTitleByCode[normalizeCourseCode(row.course_code)];
 
-                  return (
-                    <li
-                      key={
-                        row.id ??
-                        `${row.course_code}-${row.section}-${index}`
-                      }
-                    >
-                      Selected Course{" "}
-                      {index + 1} :{" "}
-                      {codeAndSection}
-                      {courseTitle
-                        ? ` - ${courseTitle}`
-                        : ""}
-                    </li>
-                  );
-                }
-              )}
-            </ul>
-          )}
+              const codeAndSection =
+                row.course_label ||
+                `${row.course_code}${
+                  row.section ? ` Sec.${row.section}` : ""
+                }`;
+
+              return (
+                <li
+                  key={
+                    row.id ??
+                    `${row.course_code}-${row.section}-${index}`
+                  }
+                >
+                  Selected Course {index + 1} : {codeAndSection}
+                  {courseTitle ? ` - ${courseTitle}` : ""}
+                </li>
+              );
+            })}
+          </ul>
+        )}
       </div>
 
       {/* --------------------------------------------
@@ -867,59 +854,30 @@ const studentEmail =
       --------------------------------------------- */}
 
       <div className="analytics-card">
-        <h3>
-          Grade History
-        </h3>
+        <h3>Grade History</h3>
 
         {loadingGrades ? (
           <p>Loading grades...</p>
         ) : grades.length === 0 ? (
-          <p>
-            No grades have been uploaded for
-            this student.
-          </p>
+          <p>No grades have been uploaded for this student.</p>
         ) : (
-          semesterGroups.map(
-            ([semester, semesterGrades]) => (
-              <div
-                key={semester}
-                className="analytics-semester"
-              >
-                <h4>
-                  {semester}
-                </h4>
+          semesterGroups.map(([semester, semesterGrades]) => (
+            <div key={semester} className="analytics-semester">
+              <h4>{semester}</h4>
 
-                <ul>
-                  {semesterGrades.map(
-                    (row, index) => (
-                      <li
-                        key={
-                          row.id ??
-                          `${row.course_code}-${index}`
-                        }
-                      >
-                        <strong>
-                          {row.course_code}
-                        </strong>{" "}
-                        -{" "}
-                        {row.course_name ||
-                          "Unknown Course"}{" "}
-                        (
-                        {row.credits} Credits
-                        ){" "}
-                        <strong>
-                          {row.grade}
-                        </strong>
-                      </li>
-                    )
-                  )}
-                </ul>
-              </div>
-            )
-          )
+              <ul>
+                {semesterGrades.map((row, index) => (
+                  <li key={row.id ?? `${row.course_code}-${index}`}>
+                    <strong>{row.course_code}</strong> -{" "}
+                    {row.course_name || "Unknown Course"} ({row.credits}{" "}
+                    Credits) <strong>{row.grade}</strong>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))
         )}
       </div>
-
     </div>
   );
 }

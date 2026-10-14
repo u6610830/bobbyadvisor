@@ -475,7 +475,7 @@ function AdminUploadData() {
 
   return (
     <div className="upload-data-page">
-      <span className="admin-summary-title-pill">Upload Table Data</span>
+      <span className="admin-summary-title-pill">Curriculum</span>
 
       <div className="upload-data-layout">
         <div className="upload-data-sidebar">

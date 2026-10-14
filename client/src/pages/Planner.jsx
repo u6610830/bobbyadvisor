@@ -202,6 +202,7 @@ function Planner({ studentId, curriculumYear = null }) {
     }, 50);
   };
   const [blockedNotice, setBlockedNotice] = useState(null); // { code, reason } | null
+  const pendingSectionCodes = useRef(new Set());
   const [conflictNotice, setConflictNotice] = useState(null); // { newLabel, conflictingLabel } | null
   const [saveStatus, setSaveStatus] = useState("idle"); // idle | saving | saved | error
   const [approval, setApproval] = useState(null); // planner_approvals row, or null
@@ -545,8 +546,42 @@ function Planner({ studentId, curriculumYear = null }) {
 
   const hasAnyBlocks = blocks.length > 0;
 
+  // A student can plan only one section of a course at a time. Compare the
+  // normalized course code so different section labels still count as the
+  // same course (for example CSX2009 Sec.541 and CSX2009 Sec.542).
+  const selectedSectionForCourse = (code, excludeIndex = -1) => {
+    const normalizedCode = normalizeCourseCode(code);
+    if (!normalizedCode) return null;
+    return courses.find((label, index) =>
+      index !== excludeIndex &&
+      normalizeCourseCode(extractCourseCodes(label)[0]) === normalizedCode
+    ) || null;
+  };
+
+  const blockDuplicateSection = (code) => {
+    const normalizedCode = normalizeCourseCode(code);
+    if (normalizedCode && pendingSectionCodes.current.has(normalizedCode)) {
+      setBlockedNotice({
+        code,
+        reason: "Another section of this course is being added. Wait until it appears, then remove it before choosing a different section.",
+      });
+      return true;
+    }
+
+    const existingLabel = selectedSectionForCourse(code);
+    if (!existingLabel) return false;
+    setBlockedNotice({
+      code,
+      reason: `You already added ${existingLabel}. Remove that section before adding another section of this course.`,
+    });
+    return true;
+  };
+
   const addSection = (entry) => {
     const label = courseLabel(entry);
+
+    if (courses.includes(label)) return;
+    if (blockDuplicateSection(entry.code)) return;
 
     const blocked = checkPrerequisite(entry.code, entry.name);
     if (blocked) {
@@ -560,10 +595,19 @@ function Planner({ studentId, curriculumYear = null }) {
       return;
     }
 
+    const normalizedCode = normalizeCourseCode(entry.code);
+    if (normalizedCode) {
+      pendingSectionCodes.current.add(normalizedCode);
+      setTimeout(() => pendingSectionCodes.current.delete(normalizedCode), 1000);
+    }
     setCourses((prev) => (prev.includes(label) ? prev : [...prev, label]));
   };
 
   const addManualCourse = (label) => {
+    const code = extractCourseCodes(label)[0];
+    if (courses.includes(label)) return;
+    if (blockDuplicateSection(code)) return;
+
     const blocked = checkCourseLabelPrerequisite(label);
     if (blocked) {
       setBlockedNotice(blocked);
@@ -578,6 +622,16 @@ function Planner({ studentId, curriculumYear = null }) {
   };
 
   const editManualCourse = (index, label) => {
+    const code = extractCourseCodes(label)[0];
+    const existingLabel = selectedSectionForCourse(code, index);
+    if (existingLabel) {
+      setBlockedNotice({
+        code,
+        reason: `You already added ${existingLabel}. Remove that section before adding another section of this course.`,
+      });
+      return;
+    }
+
     const blocked = checkCourseLabelPrerequisite(label);
     if (blocked) {
       setBlockedNotice(blocked);
@@ -618,6 +672,8 @@ function Planner({ studentId, curriculumYear = null }) {
   const handleAddRecommendation = async (recommendation) => {
     const courseCode = normalizeCourseCode(recommendation?.course_code);
     if (!courseCode) return;
+
+    if (blockDuplicateSection(courseCode)) return;
 
     setRecommendationStatus("");
 
@@ -929,6 +985,7 @@ function Planner({ studentId, curriculumYear = null }) {
               onAdd={addManualCourse}
               onEdit={editManualCourse}
               showEdit={false}
+              showAdd={false}
               onDelete={(index) => {
                 setCourses((prev) => prev.filter((_, i) => i !== index));
                 scrollToPlannerCourse();
@@ -939,6 +996,9 @@ function Planner({ studentId, curriculumYear = null }) {
               }}
             />
             <div className="planner-save-row">
+              <UnsavedNotice
+                show={saveStatus !== "saving" && savedSnapshot !== null && JSON.stringify([...courses].sort()) !== savedSnapshot}
+              />
               <button
                 type="button"
                 className="planner-save-btn"
@@ -951,9 +1011,6 @@ function Planner({ studentId, curriculumYear = null }) {
               {saveStatus === "error" && (
                 <span className="planner-save-error">Could not save — please try again.</span>
               )}
-              <UnsavedNotice
-                show={saveStatus !== "saving" && savedSnapshot !== null && JSON.stringify([...courses].sort()) !== savedSnapshot}
-              />
             </div>
           </div>
 

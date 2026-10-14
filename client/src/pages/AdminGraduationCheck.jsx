@@ -79,15 +79,22 @@ function AdminGraduationCheck() {
       setRecord(null);
       await syncCurriculaFromServer();
 
-      const [studentData, gradesData, electiveGroupData, manualCourses] = await Promise.all([
-        fetchJSON(`${API_BASE}/students/${encodeURIComponent(studentId)}`),
-        fetchJSON(`${API_BASE}/grades?student_id=${encodeURIComponent(studentId)}`),
-        fetchJSON(`${API_BASE}/student-elective-group/${encodeURIComponent(studentId)}`),
-        fetchJSON(`${API_BASE}/student-elective-courses?student_id=${encodeURIComponent(studentId)}`)
+      // Look the student up first. The server accepts the ID however it was
+      // typed ("U6610001", "6610001", spaces, lowercase…) and returns the ID
+      // exactly as stored, which is then used for everything else. Before, the
+      // typed text was sent as-is, so only IDs typed exactly like the stored
+      // value (e.g. U6610001) were recognised.
+      const studentData = await fetchJSON(`${API_BASE}/students/${encodeURIComponent(studentId)}`);
+      const profile = studentData.student;
+      const storedId = profile.student_id;
+
+      const [gradesData, electiveGroupData, manualCourses] = await Promise.all([
+        fetchJSON(`${API_BASE}/grades?student_id=${encodeURIComponent(storedId)}`),
+        fetchJSON(`${API_BASE}/student-elective-group/${encodeURIComponent(storedId)}`),
+        fetchJSON(`${API_BASE}/student-elective-courses?student_id=${encodeURIComponent(storedId)}`)
           .catch(() => []),
       ]);
 
-      const profile = studentData.student;
       const officialGrades = Array.isArray(gradesData) ? gradesData : [];
       const curriculum = getCurriculumForStudent(profile.student_id, profile.curriculum_year);
       const finalOfficialGrades = getFinalCourseGrades(officialGrades, curriculum);
@@ -139,7 +146,7 @@ function AdminGraduationCheck() {
         <Search size={18} strokeWidth={2} />
         <input
           type="text"
-          placeholder="Enter Student ID, e.g. U6610001"
+          placeholder="Enter Student ID, e.g. U6610001 or 6610001"
           value={query}
           onChange={(event) => setQuery(event.target.value)}
         />

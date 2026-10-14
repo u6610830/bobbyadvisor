@@ -11,7 +11,7 @@ export const TIMETABLE_DAY_LABELS = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "
 export const TIMETABLE_TIME_START = "09:00";
 export const TIMETABLE_TIME_END = "21:00";
 export const TIMETABLE_TIME_LABELS = [
-  "09:00", "10:30", "12:00", "13:30", "15:00", "16:30", "18:00", "19:30", "21:00",
+  "09:00", "10:30", "12:00", "13:30", "15:00", "16:30", "18:00", "19:30",
 ];
 
 export const TIMETABLE_COLORS = [

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import axios from "axios";
 import { Plus, Trash2, Save, RefreshCcw, UploadCloud, FileText, X } from "lucide-react";
 import { getPrereqGroups, prereqTextKey } from "../data/prereqGroups.js";
