@@ -136,6 +136,9 @@ function StudentRequestedCourses({ studentId, onNavigate }) {
               renderLabel={(label, index) => `Requested Course ${index + 1} : ${label}`}
             />
             <div className="student-req-save-row">
+              <UnsavedNotice
+                show={saveStatus !== "saving" && savedSnapshot !== null && JSON.stringify([...requestedCourses].sort()) !== savedSnapshot}
+              />
               <button
                 type="button"
                 className="student-req-save-btn"
@@ -148,13 +151,11 @@ function StudentRequestedCourses({ studentId, onNavigate }) {
                   : saveStatus === "saved"
                   ? "Saved!"
                   : "Save"}
+              
               </button>
               {saveStatus === "error" && (
                 <span className="student-req-save-error">Could not save — please try again.</span>
               )}
-              <UnsavedNotice
-                show={saveStatus !== "saving" && savedSnapshot !== null && JSON.stringify([...requestedCourses].sort()) !== savedSnapshot}
-              />
             </div>
           </>
         )}

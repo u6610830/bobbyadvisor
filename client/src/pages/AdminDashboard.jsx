@@ -293,9 +293,6 @@ function AdminDashboard({ onNavigate }) {
               <h3>
                 <GraduationCap size={18} /> Estimated terms to graduate
               </h3>
-              <div className="dash-links">
-                <button type="button" onClick={() => go("graduation-check")}>Graduation Check</button>
-              </div>
             </div>
             <p className="dash-muted">
               Terms left = remaining credits ÷ {data.creditsPerTerm} (rounded up). Remaining credits = the
@@ -364,7 +361,7 @@ function AdminDashboard({ onNavigate }) {
                 </thead>
                 <tbody>
                   {filteredStudents.map((s) => (
-                    <tr key={s.studentId} onClick={() => go("graduation-check", { studentId: s.studentId })}>
+                    <tr key={s.studentId}>
                       <td><strong>{s.studentId}</strong></td>
                       <td>{s.name || "—"}</td>
                       <td>{s.curriculumYear || "—"}</td>

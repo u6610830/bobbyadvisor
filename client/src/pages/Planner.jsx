@@ -1260,38 +1260,23 @@ function Planner({ studentId, curriculumYear = null }) {
             </div>
 
             <EditableList
-              items={courses}
-              suggestions={[
-                ...new Map(
-                  openEntries
-                    .filter((entry) => entry.code)
-                    .map((entry) => [
-                      entry.code,
-                      {
-                        code: entry.code,
-                        name: entry.name || "",
-                      },
-                    ])
-                ).values(),
-              ]}
-              placeholder="Add a course code (e.g. CSX-9004)"
-              onAdd={addManualCourse}
-              onEdit={editManualCourse}
-              showEdit={false}
-              onDelete={(index) => {
-                setCourses((prev) =>
-                  prev.filter((_, i) => i !== index)
-                );
-                scrollToPlannerCourse();
-              }}
-              renderLabel={(code, index) => {
-                const group = groupForLabel(code);
+            items={courses}
+            onAdd={addManualCourse}
+            onEdit={editManualCourse}
+            showAdd={false}
+            showEdit={false}
+            onDelete={(index) => {
+            setCourses((prev) => prev.filter((_, i) => i !== index));
+            scrollToPlannerCourse();
+            }}
+            renderLabel={(code, index) => {
+        const group = groupForLabel(code);
 
-                return `Selected Course ${index + 1} : ${code}${
-                  group ? ` (${group})` : ""
-                }`;
-              }}
-            />
+        return `Selected Course ${index + 1} : ${code}${
+        group ? ` (${group})` : ""
+        }`;
+    }}
+    />
 
             <div className="planner-save-row">
               <button
