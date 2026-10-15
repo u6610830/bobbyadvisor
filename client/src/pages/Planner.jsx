@@ -1237,13 +1237,6 @@ function Planner({ studentId, curriculumYear = null }) {
                     : "Pending Approval"}
                 </button>
 
-                <button
-                  type="button"
-                  className="planner-schedule-btn"
-                  onClick={() => setShowCourseLeft(true)}
-                >
-                  Check course left
-                </button>
 
                 <button
                   type="button"
